@@ -46,6 +46,11 @@ class RetrievalMode(StrEnum):
     HYBRID = "hybrid"
 
 
+class ResultOrder(StrEnum):
+    DOCUMENT = "document"
+    DATE_DESC = "date_desc"
+
+
 class ContextLabel(StrEnum):
     DIRECT_EVIDENCE = "direct_evidence"
     FOLLOWED_LINK = "followed_link"
@@ -98,6 +103,13 @@ class NoteRef:
     path: str
     title: str
     note_type: NoteType
+
+
+@dataclass(frozen=True, slots=True)
+class NoteSummary(NoteRef):
+    """One vault-catalog note, including notes with no indexed entries."""
+
+    indexed_entries: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +182,8 @@ class QueryPlan:
     nearby_days: int = 3
     max_linked_notes: int = 5
     limit: int = 10
+    offset: int = 0
+    order: ResultOrder = ResultOrder.DOCUMENT
     kanban_board: str | None = None
     kanban_column: str | None = None
     kanban_status: str | None = None
@@ -184,6 +198,17 @@ class QueryPlan:
             raise ValueError("max_linked_notes must be between 1 and 5")
         if self.limit <= 0:
             raise ValueError("limit must be positive")
+        if self.offset < 0:
+            object.__setattr__(self, "offset", 0)
+
+
+@dataclass(frozen=True, slots=True)
+class Page[PageItem]:
+    """A bounded page over a deterministic or relevance-ranked result set."""
+
+    items: tuple[PageItem, ...]
+    has_more: bool
+    next_offset: int | None = None
 
 
 # Which query text each retrieval mode consumes. One mapping, so a caller that

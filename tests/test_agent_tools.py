@@ -96,14 +96,16 @@ def test_the_write_and_unbounded_operations_are_not_offered() -> None:
         "expand_context",
         "find_backlinks",
         "find_tasks",
+        "list_notes",
     }
     assert "reindex" not in offered
     assert "export_graph" not in offered
 
 
 def test_search_projects_entries_with_citable_fields(ctx: RunContext[Sources]) -> None:
-    results = tools.search_notes(ctx, "pipeline", limit=3)
-    assert results
+    page = tools.search_notes(ctx, "pipeline", limit=3)
+    assert page
+    results = page["items"]
     first = results[0]
     assert set(first) >= {"id", "note", "path", "lines", "date", "date_kind", "text"}
     assert re.fullmatch(r"\d+-\d+", first["lines"])
@@ -116,14 +118,13 @@ def test_search_projects_entries_with_citable_fields(ctx: RunContext[Sources]) -
 
 
 def test_exact_search_reports_a_verified_literal_match(ctx: RunContext[Sources]) -> None:
-    results = tools.search_notes(ctx, "fried chicken", exact=True)
-    assert results
-    assert all(result["exact_match_verified"] is True for result in results)
+    page = tools.search_notes(ctx, "fried chicken", exact=True)
+    assert page["items"]
+    assert all(result["exact_match_verified"] is True for result in page["items"])
 
 
 def test_an_undated_entry_is_never_given_a_date(ctx: RunContext[Sources]) -> None:
-    results = tools.search_notes(ctx, "pipeline", limit=20)
-    for result in results:
+    for result in tools.search_notes(ctx, "pipeline", limit=20)["items"]:
         if result["date_kind"] is None:
             assert result["date"] is None
         else:
@@ -140,7 +141,7 @@ def test_read_note_returns_the_whole_file_within_a_cap(ctx: RunContext[Sources])
 
 
 def test_expand_context_keeps_the_evidence_labels(ctx: RunContext[Sources]) -> None:
-    source = tools.search_notes(ctx, "pipeline", limit=1)[0]["id"]
+    source = tools.search_notes(ctx, "pipeline", limit=1)["items"][0]["id"]
     expansion = tools.expand_context(ctx, source)
     # No entry id is echoed back. The caller named the source by its label, and
     # an internal identifier in the result is one the model may print.
@@ -153,13 +154,13 @@ def test_expand_context_keeps_the_evidence_labels(ctx: RunContext[Sources]) -> N
 
 def test_backlinks_and_tasks_resolve_by_name(ctx: RunContext[Sources]) -> None:
     backlinks = tools.find_backlinks(ctx, "News Resolution")
-    assert backlinks
-    assert all("path" in result for result in backlinks)
+    assert backlinks["items"]
+    assert all("path" in result for result in backlinks["items"])
 
     open_cards = tools.find_tasks(ctx, board="Kitchen App", columns=["ToDo"], checked=False)
-    assert open_cards
-    assert all(card["task"]["column"] == "ToDo" for card in open_cards)
-    assert all(card["task"]["checked"] is False for card in open_cards)
+    assert open_cards["items"]
+    assert all(card["task"]["column"] == "ToDo" for card in open_cards["items"])
+    assert all(card["task"]["checked"] is False for card in open_cards["items"])
 
 
 def test_a_bad_name_becomes_an_instruction_the_model_can_act_on(
@@ -183,8 +184,41 @@ def test_a_bad_name_becomes_an_instruction_the_model_can_act_on(
 
 
 def test_limits_are_clamped_rather_than_trusted(ctx: RunContext[Sources]) -> None:
-    assert len(tools.search_notes(ctx, "the", limit=999)) <= 20
-    assert tools.search_notes(ctx, "the", limit=0)
+    assert len(tools.search_notes(ctx, "the", limit=999)["items"]) <= 20
+    assert tools.search_notes(ctx, "the", limit=0)["items"]
+
+
+def test_collection_tools_page_and_continue(ctx: RunContext[Sources]) -> None:
+    first = tools.search_notes(ctx, "the", limit=1, offset=-10)
+    assert len(first["items"]) == 1
+    assert first["has_more"] is True
+    assert first["next_offset"] == 1
+
+    second = tools.search_notes(ctx, "the", limit=1, offset=first["next_offset"])
+    assert second["items"]
+    assert second["items"][0]["id"] != first["items"][0]["id"]
+
+
+def test_queryless_search_orders_dated_entries_before_undated_entries(ctx: RunContext[Sources]) -> None:
+    page = tools.search_notes(ctx, limit=20)
+    dates = [item["date"] for item in page["items"]]
+    assert any(date is not None for date in dates)
+    assert any(date is None for date in dates)
+    assert dates == sorted((date for date in dates if date is not None), reverse=True) + [None] * dates.count(None)
+
+
+def test_list_notes_includes_a_note_with_no_indexed_entries(ctx: RunContext[Sources]) -> None:
+    (ctx.deps.vault.settings.vault_path / "Empty.md").write_text("# Empty\n")
+
+    page = tools.list_notes(ctx, note_type="standard", limit=50)
+    empty = next(note for note in page["items"] if note["path"] == "Empty.md")
+    assert empty == {
+        "note": "Empty",
+        "path": "Empty.md",
+        "note_type": "standard",
+        "indexed_entries": 0,
+    }
+    assert all(note["note_type"] == "standard" for note in page["items"])
 
 
 def test_a_clipped_entry_only_claims_a_verified_match_it_can_show() -> None:
@@ -243,9 +277,21 @@ def test_an_unknown_kanban_column_names_the_real_ones(ctx: RunContext[Sources]) 
 
 
 def test_find_tasks_never_claims_a_card_contains_the_query(ctx: RunContext[Sources]) -> None:
-    cards = tools.find_tasks(ctx, board="Kitchen App", query="recipe", limit=3)
+    cards = tools.find_tasks(ctx, board="Kitchen App", query="recipe", limit=3)["items"]
     assert cards
     assert all("exact_match_verified" not in card for card in cards)
+
+
+def test_tasks_filter_explicit_dates_tags_and_statuses(ctx: RunContext[Sources]) -> None:
+    dated = tools.find_tasks(ctx, date_from="2026-08-20", date_to="2026-08-20")["items"]
+    assert dated
+    assert all(card["date"] == "2026-08-20" and card["date_kind"] == "entry_date" for card in dated)
+
+    tagged = tools.find_tasks(ctx, tags=["recipe"])["items"]
+    assert tagged and all("recipe" in card["tags"] for card in tagged)
+
+    complete = tools.find_tasks(ctx, statuses=["complete"])["items"]
+    assert complete and all(card["task"]["status"] == "complete" for card in complete)
 
 
 def test_search_narrows_by_tag_and_by_date(ctx: RunContext[Sources]) -> None:
@@ -254,11 +300,13 @@ def test_search_narrows_by_tag_and_by_date(ctx: RunContext[Sources]) -> None:
     A model that cannot narrow searches the whole vault and answers from
     whatever ranked highest, which is not the same as what the question asked.
     """
-    tagged = tools.search_notes(ctx, "tag", tags=["journal"], limit=5)
+    tagged = tools.search_notes(ctx, "tag", tags=["journal"], limit=5)["items"]
     assert tagged
     assert all("journal" in result["tags"] for result in tagged)
 
-    dated = tools.search_notes(ctx, "pipeline", date_from="2026-08-19", date_to="2026-08-19", limit=10)
+    dated = tools.search_notes(
+        ctx, "pipeline", date_from="2026-08-19", date_to="2026-08-19", limit=10
+    )["items"]
     assert dated
     assert all(result["date"] == "2026-08-19" for result in dated)
 
@@ -272,7 +320,7 @@ def test_expand_context_reports_the_links_it_could_not_resolve(
     the whole of what the entry points at, and answer as if nothing were
     missing.
     """
-    source = tools.search_notes(ctx, "Missing", exact=True, limit=5)[0]["id"]
+    source = tools.search_notes(ctx, "Missing", exact=True, limit=5)["items"][0]["id"]
     unresolved = tools.expand_context(ctx, source)["unresolved_links"]
     reasons = {item["target"]: item["reason"] for item in unresolved}
     assert reasons["Does Not Exist"] == "missing"

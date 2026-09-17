@@ -106,7 +106,8 @@ def test_a_sentence_resting_on_several_sources_resolves_all_of_them() -> None:
 
     both = {"s1": _EXPECTED, "s2": _EXPECTED | {"lines": "13-16"}}
     assert sources.cited("A claim. [s1][s2]") == both
-    assert sources.cited("A claim. [s1, s2]") == both
+    assert sources.cited("A claim. [s1, s2]") == {}
+    assert sources.citation_check("A claim. [s1, s2]").valid is False
 
 
 def test_a_bracket_carrying_no_id_cites_nothing() -> None:
@@ -117,8 +118,20 @@ def test_a_bracket_carrying_no_id_cites_nothing() -> None:
 
     assert sources.cited("A claim. [News Resolution]") == {}
     assert sources.cited("A claim. [News Resolution, 2026-08-17, lines 6-9]") == {}
-    # The id survives the company it was written in.
-    assert sources.cited("A claim. [s1, lines 6-9]") == {"s1": _EXPECTED}
+    assert sources.cited("A claim. [s1, lines 6-9]") == {}
+    assert sources.citation_check("A claim. [s1, lines 6-9]").valid is False
+
+
+def test_citation_check_requires_issued_sources_to_be_cited() -> None:
+    sources = Sources(None)
+    sources.label(_result("e1"))
+
+    assert sources.citation_check("I found an answer.").errors == (
+        "answer used vault evidence but contains no valid issued citation",
+    )
+    assert sources.citation_check("I found an answer. [s1]").valid is True
+    assert sources.citation_check("I found an answer. s1").valid is False
+    assert sources.citation_check("I found an answer. [s99]").valid is False
 
 
 def test_a_whole_note_resolves_without_claiming_a_line_range() -> None:

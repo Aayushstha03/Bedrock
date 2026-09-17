@@ -20,12 +20,12 @@ from typing import Any
 from zenith.core.contracts import NoteContent, SearchResult
 from zenith.library import Zenith
 
-# `[s1]`, and `[s1][s4]` or `[s1, s4]` when a sentence rests on several. The
-# brackets are required. A bare `s3` in prose is an answer talking about an S3
-# bucket, and reading it as a citation either invents one or, worse, credits a
-# real source the sentence never cited.
+# Each source citation is one bracketed label, such as `[s1]`. Several sources
+# use adjacent citations, `[s1][s4]`; putting multiple ids into one bracket is
+# deliberately invalid so the answer grammar stays unambiguous.
 CITATION = re.compile(r"\[([^\[\]]*)\]")
 LABEL = re.compile(r"\bs\d+\b", re.IGNORECASE)
+VALID_CITATION = re.compile(r"\[(s\d+)\]", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +47,12 @@ class Source:
         if self.lines is not None:
             projected["lines"] = self.lines
         return projected
+
+
+@dataclass(frozen=True, slots=True)
+class CitationCheck:
+    valid: bool
+    errors: tuple[str, ...] = ()
 
 
 @dataclass
@@ -119,14 +125,37 @@ class Sources:
         exist must not look the same as one that cites evidence which does.
         """
         resolved: dict[str, dict[str, Any]] = {}
-        for bracket in CITATION.finditer(answer):
-            for match in LABEL.finditer(bracket.group(1)):
-                label = match.group(0).lower()
-                if label in resolved:
-                    continue
-                source = self._sources.get(label)
-                resolved[label] = source.to_dict() if source else {"unknown": True}
+        for match in VALID_CITATION.finditer(answer):
+            label = match.group(1).lower()
+            if label in resolved:
+                continue
+            source = self._sources.get(label)
+            resolved[label] = source.to_dict() if source else {"unknown": True}
         return resolved
+
+    def citation_check(self, answer: str) -> CitationCheck:
+        """Check the answer's source-reference grammar, not its semantics."""
+        errors: list[str] = []
+        valid_spans = {
+            (match.start(1), match.end(1)): match.group(1).lower()
+            for match in VALID_CITATION.finditer(answer)
+        }
+        known = {label for label in valid_spans.values() if label in self._sources}
+
+        for bracket in CITATION.finditer(answer):
+            content = bracket.group(1)
+            if LABEL.search(content) and not LABEL.fullmatch(content):
+                errors.append(f"malformed citation [{content}]; use one id such as [s1]")
+        for match in LABEL.finditer(answer):
+            span = (match.start(), match.end())
+            label = match.group(0).lower()
+            if span not in valid_spans:
+                errors.append(f"bare source id {label}; write it as [{label}]")
+            elif label not in self._sources:
+                errors.append(f"unknown citation [{label}]")
+        if self._sources and not known:
+            errors.append("answer used vault evidence but contains no valid issued citation")
+        return CitationCheck(not errors, tuple(dict.fromkeys(errors)))
 
     def _issue(self, key: str, source: Source) -> str:
         existing = self._labels.get(key)

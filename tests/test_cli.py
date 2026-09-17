@@ -195,15 +195,61 @@ def test_ask_reports_the_answer_with_the_evidence_it_looked_at(monkeypatch, cli_
     # This tool bypasses the projections, so it issued no label. A citation the
     # run cannot account for is reported as one, not quietly rendered as a note.
     assert payload["citations"] == {"s1": {"unknown": True}}
+    assert payload["citation_valid"] is False
+    assert payload["citation_errors"] == ["unknown citation [s1]"]
     assert payload["model"] == "lfm2.5-8b-a1b"
     assert payload["question"] == "what did I do?"
     # The trace is part of the result: an answer is only as good as what it read.
     assert payload["tool_calls"] == [{"arguments": {"query": "pipeline"}, "tool": "search_notes"}]
-    assert payload["usage"]["requests"] == 2
+    assert payload["usage"]["requests"] == 3
     assert payload["usage"]["tool_calls"] == 1
     # The agent is handed the run's source ledger, holding the library.
     assert [item.vault for item in reached] == [deps]
     assert list(payload) == sorted(payload)
+
+
+def test_ask_corrects_a_missing_citation(monkeypatch, cli_settings, capsys) -> None:
+    from pydantic_ai import RunContext
+    from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, UserPromptPart
+    from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+    import zenith.agent.service as agent_service
+    from zenith.agent.sources import Sources
+    from zenith.core.contracts import NoteContent, NoteType
+
+    def search_notes(ctx: RunContext[Sources], query: str) -> dict:
+        """Return one source.
+
+        Args:
+            query: What to look for.
+        """
+        label = ctx.deps.label_note(NoteContent("n", "Note.md", "Note", NoteType.STANDARD, "body"))
+        return {"items": [{"id": label, "note": "Note", "path": "Note.md"}], "has_more": False}
+
+    def script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if any(
+            isinstance(part, UserPromptPart) and "Rewrite your immediately previous answer" in str(part.content)
+            for message in messages
+            for part in message.parts
+        ):
+            return ModelResponse(parts=[TextPart("The note says this. [s1]")])
+        if len(messages) == 1:
+            return ModelResponse(parts=[ToolCallPart("search_notes", {"query": "note"})])
+        return ModelResponse(parts=[TextPart("The note says this.")])
+
+    monkeypatch.setattr("zenith.runtime.cli.Zenith", lambda settings: object())
+    monkeypatch.setattr("zenith.runtime.cli.health_report", lambda settings: {"ready": True})
+    monkeypatch.setattr("zenith.runtime.cli.llm_health", lambda settings: {"ready": True})
+    monkeypatch.setattr(agent_service, "TOOLS", [search_notes])
+    monkeypatch.setattr(agent_service, "build_model", lambda settings: FunctionModel(script))
+
+    assert main(["ask", "what does the note say?"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["answer"] == "The note says this. [s1]"
+    assert payload["citation_valid"] is True
+    assert payload["citation_errors"] == []
+    assert payload["citations"] == {"s1": {"note": "Note", "path": "Note.md"}}
 
 
 def test_ask_leaves_the_agent_stack_unimported_for_other_commands(monkeypatch, cli_settings) -> None:

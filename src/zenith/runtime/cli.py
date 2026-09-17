@@ -318,6 +318,8 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
 def _ask(args: argparse.Namespace, settings: Settings, api: Zenith) -> int:
     # Imported here, not at module scope: pulling in the agent stack costs
     # more than a second, and every other command would pay it for nothing.
+    from pydantic_ai.exceptions import UsageLimitExceeded
+
     from zenith.agent import DEFAULT_LIMITS, Sources, build_agent
 
     if args.model:
@@ -364,10 +366,29 @@ def _ask(args: argparse.Namespace, settings: Settings, api: Zenith) -> int:
     # One ledger per question. The model cites `s1`, `s2`; the ledger is what
     # turns those back into a note, a heading, and a line range for the reader.
     sources = Sources(api)
-    result = build_agent(settings).run_sync(args.question, deps=sources, usage_limits=DEFAULT_LIMITS)
+    agent = build_agent(settings)
+    result = agent.run_sync(args.question, deps=sources, usage_limits=DEFAULT_LIMITS)
+    citation_check = sources.citation_check(result.output)
+    if not citation_check.valid:
+        original = result
+        try:
+            result = agent.run_sync(
+                "Rewrite your immediately previous answer so it follows the citation rules. "
+                f"Validation errors: {'; '.join(citation_check.errors)}. "
+                "Keep the answer grounded in the tool results already shown; do not invent sources.",
+                message_history=result.all_messages(),
+                deps=sources,
+                usage_limits=DEFAULT_LIMITS,
+                usage=result.usage,
+            )
+        except UsageLimitExceeded:
+            result = original
+        citation_check = sources.citation_check(result.output)
     _print(
         {
             "answer": result.output,
+            "citation_errors": list(citation_check.errors),
+            "citation_valid": citation_check.valid,
             "citations": sources.cited(result.output),
             "model": settings.llm_model,
             "question": args.question,

@@ -17,23 +17,25 @@ from pydantic_ai import ModelRetry, RunContext
 
 from zenith.agent import projections
 from zenith.agent.sources import Sources
+from zenith.core.contracts import NoteType, ResultOrder
 
 _SOURCE_ID = re.compile(r"s\d+", re.IGNORECASE)
 
 
 def search_notes(
     ctx: RunContext[Sources],
-    query: str,
+    query: str | None = None,
     exact: bool = False,
     date_from: str | None = None,
     date_to: str | None = None,
     tags: list[str] | None = None,
     limit: int = 5,
-) -> list[dict[str, Any]]:
+    offset: int = 0,
+) -> dict[str, Any]:
     """Search the notes vault and return the entries that match.
 
     Args:
-        query: What to look for. Plain language works; so does a phrase.
+        query: What to look for. Omit it to browse entries by date instead.
         exact: Return only entries containing the query as a literal phrase.
             Use this when the question depends on the exact wording. Results
             then carry `exact_match_verified`.
@@ -41,9 +43,12 @@ def search_notes(
         date_to: Latest date to include, written as YYYY-MM-DD.
         tags: Return only entries that carry all of these tags.
         limit: How many entries to return, at most 20.
+        offset: How many matching entries to skip before this page.
     """
     with _repair():
-        results = ctx.deps.vault.find_entries(
+        if exact and not query:
+            raise ValueError("exact search requires a query")
+        results = ctx.deps.vault.find_entries_page(
             exact_text=query if exact else None,
             lexical_text=None if exact else query,
             semantic_text=None if exact else query,
@@ -51,8 +56,10 @@ def search_notes(
             date_to=date_to,
             tags_all=tuple(tags or ()),
             limit=max(1, min(limit, 20)),
+            offset=max(0, offset),
+            order=ResultOrder.DATE_DESC if query is None else ResultOrder.DOCUMENT,
         )
-    return projections.entries(ctx.deps, results, match=query if exact else None)
+    return projections.page(ctx.deps, results, match=query if exact else None)
 
 
 def read_note(ctx: RunContext[Sources], name: str) -> dict[str, Any]:
@@ -93,47 +100,94 @@ def expand_context(ctx: RunContext[Sources], source: str) -> dict[str, Any]:
         return projections.context(ctx.deps, ctx.deps.vault.expand_context(entry_id))
 
 
-def find_backlinks(ctx: RunContext[Sources], name: str) -> list[dict[str, Any]]:
+def find_backlinks(
+    ctx: RunContext[Sources], name: str, limit: int = 10, offset: int = 0
+) -> dict[str, Any]:
     """Find the entries in other notes that link to this note.
 
     Use this to learn where a note is referred to, and in what terms.
 
     Args:
         name: The note's title, or its path inside the vault.
+        limit: How many backlinks to return, at most 20.
+        offset: How many backlinks to skip before this page.
     """
     with _repair():
         note = ctx.deps.vault.get_note(name)
-        return projections.entries(ctx.deps, ctx.deps.vault.get_backlinks(note.note_id))
+        return projections.page(
+            ctx.deps,
+            ctx.deps.vault.get_backlinks_page(
+                note.note_id, limit=max(1, min(limit, 20)), offset=max(0, offset)
+            ),
+        )
 
 
 def find_tasks(
     ctx: RunContext[Sources],
     board: str | None = None,
     columns: list[str] | None = None,
+    statuses: list[str] | None = None,
     checked: bool | None = None,
     query: str | None = None,
+    tags: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     limit: int = 10,
-) -> list[dict[str, Any]]:
+    offset: int = 0,
+) -> dict[str, Any]:
     """Find task cards on the Kanban boards in the vault.
 
     Args:
         board: Restrict to one board by name or path. Omit to search them all.
         columns: Restrict to these columns, for example ToDo or Doing. An
             unknown column name is rejected, and the reply names the real ones.
+        statuses: Restrict to board statuses, such as todo, doing, or complete.
         checked: True for completed cards, False for open cards, omit for both.
         query: Words to search for by meaning. This finds related cards; it
             does not prove any card contains these words.
+        tags: Return only cards carrying all of these tags.
+        date_from: Earliest explicit card date to include, as YYYY-MM-DD.
+        date_to: Latest explicit card date to include, as YYYY-MM-DD. Dates do
+            not imply due, scheduled, or completion meaning.
         limit: How many cards to return, at most 50.
+        offset: How many matching cards to skip before this page.
     """
     with _repair():
-        results = ctx.deps.vault.find_kanban_cards(
+        results = ctx.deps.vault.find_kanban_cards_page(
             board=board,
             columns=_columns(ctx, board, columns),
+            statuses=tuple(statuses or ()),
             checked=checked,
             semantic_text=query,
+            tags=tuple(tags or ()),
+            date_from=date_from,
+            date_to=date_to,
             limit=max(1, min(limit, 50)),
+            offset=max(0, offset),
         )
-    return projections.entries(ctx.deps, results)
+    return projections.page(ctx.deps, results)
+
+
+def list_notes(
+    ctx: RunContext[Sources],
+    note_type: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """List notes in the vault, including notes with no indexed content.
+
+    Args:
+        note_type: Restrict to log, standard, or kanban notes.
+        limit: How many notes to return, at most 50.
+        offset: How many notes to skip before this page.
+    """
+    with _repair():
+        selected = NoteType(note_type) if note_type is not None else None
+        return projections.notes(
+            ctx.deps.vault.list_notes_page(
+                note_type=selected, limit=max(1, min(limit, 50)), offset=max(0, offset)
+            )
+        )
 
 
 def _columns(ctx: RunContext[Sources], board: str | None, requested: list[str] | None) -> tuple[str, ...]:
@@ -157,7 +211,7 @@ def _columns(ctx: RunContext[Sources], board: str | None, requested: list[str] |
     return tuple(known[name.casefold()] for name in requested)
 
 
-TOOLS = [search_notes, read_note, expand_context, find_backlinks, find_tasks]
+TOOLS = [search_notes, read_note, expand_context, find_backlinks, find_tasks, list_notes]
 
 
 @contextmanager

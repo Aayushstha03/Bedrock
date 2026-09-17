@@ -414,8 +414,11 @@ docker compose exec zenith zenith ask "..." --model lfm2.5-8b-a1b
 ```
 
 Answers a question from the vault. The model reaches the notes only through
-the five tools in `zenith.agent`: search, whole-note read, context expansion,
-backlinks, and Kanban cards. It cannot write, and it cannot export the graph.
+six tools in `zenith.agent`: search, note listing, whole-note read, context
+expansion, backlinks, and Kanban cards. It cannot write, and it cannot export
+the graph. Collection tools use bounded `items` / `has_more` / `next_offset`
+pages. Query-less note search browses explicitly dated entries newest-first,
+then undated entries; Kanban date filters match only explicit card annotations.
 
 The model does not write citations. Every result a tool returns carries a
 short `id`, `s1`, `s2`, `s3`, and the model cites the id. The answer therefore
@@ -442,6 +445,14 @@ note read whole through `read_note` gets an id too, and resolves to the note
 without a line range, because there is no one range to claim. An id the run
 never issued resolves to `{"unknown": true}`, so an answer citing evidence
 that does not exist does not read like one citing evidence that does.
+
+Each citation is one bracketed id, such as `[s2]`; several sources use
+`[s2][s5]`, not `[s2, s5]`. Zenith checks that cited ids were issued and that
+answers using evidence contain valid citations. It makes one correction pass
+inside the same request/tool-call budget. The output always includes
+`citation_valid` and `citation_errors`; an exhausted correction returns the
+answer with `citation_valid: false` rather than silently treating it as
+grounded.
 
 `--model` overrides `ZENITH_LLM_MODEL` for one question, which is how to
 compare two loaded models without editing the environment.

@@ -88,6 +88,7 @@ EVERY_TOOL = {
     "expand_context",
     "find_backlinks",
     "find_tasks",
+    "list_notes",
 }
 
 
@@ -111,7 +112,7 @@ def test_every_tool_is_declared_and_succeeds_in_a_real_agent_run(settings, vault
         }
         if "search_notes" not in done:
             return _call("search_notes", {"query": "pipeline", "limit": 3})
-        found = _payload(_returns(messages, "search_notes")[0])
+        found = _payload(_returns(messages, "search_notes")[0])["items"]
         if "read_note" not in done:
             return _call("read_note", {"name": found[0]["path"]})
         if "expand_context" not in done:
@@ -120,6 +121,8 @@ def test_every_tool_is_declared_and_succeeds_in_a_real_agent_run(settings, vault
             return _call("find_backlinks", {"name": "News Resolution"})
         if "find_tasks" not in done:
             return _call("find_tasks", {"board": "Kitchen App", "limit": 3})
+        if "list_notes" not in done:
+            return _call("list_notes", {"note_type": "standard", "limit": 3})
         return ModelResponse(parts=[TextPart("done")])
 
     agent = build_agent(settings, model=FunctionModel(script))
@@ -177,7 +180,7 @@ def test_the_model_can_search_then_follow_an_entry_into_its_context(settings, va
             steps.append("search")
             return ModelResponse(parts=[ToolCallPart("search_notes", {"query": "pipeline", "limit": 3})])
         if not expanded:
-            entries = _payload(searched[0])
+            entries = _payload(searched[0])["items"]
             steps.append("expand")
             return ModelResponse(parts=[ToolCallPart("expand_context", {"source": entries[0]["id"]})])
         context = _payload(expanded[0])

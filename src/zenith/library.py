@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unicodedata
+from collections import Counter
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -17,9 +18,13 @@ from zenith.core.contracts import (
     Link,
     NetworkGraph,
     NoteContent,
+    NoteSummary,
+    NoteType,
     NoteView,
+    Page,
     ParsedNote,
     QueryPlan,
+    ResultOrder,
     RetrievalMode,
     SearchResult,
     WarningType,
@@ -92,9 +97,42 @@ class Zenith:
         mode: RetrievalMode | None = None,
         limit: int = 10,
     ) -> tuple[SearchResult, ...]:
+        return self.find_entries_page(
+            date_from=date_from,
+            date_to=date_to,
+            tags_all=tags_all,
+            tags_any=tags_any,
+            note=note,
+            section=section,
+            entry_types=entry_types,
+            exact_text=exact_text,
+            lexical_text=lexical_text,
+            semantic_text=semantic_text,
+            mode=mode,
+            limit=limit,
+        ).items
+
+    def find_entries_page(
+        self,
+        *,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        tags_all: tuple[str, ...] = (),
+        tags_any: tuple[str, ...] = (),
+        note: str | None = None,
+        section: str | None = None,
+        entry_types: tuple[EntryType, ...] = (),
+        exact_text: str | None = None,
+        lexical_text: str | None = None,
+        semantic_text: str | None = None,
+        mode: RetrievalMode | None = None,
+        limit: int = 10,
+        offset: int = 0,
+        order: ResultOrder = ResultOrder.DOCUMENT,
+    ) -> Page[SearchResult]:
         note_id = self.get_note(note).note_id if note is not None else None
         selected_mode = _mode(mode, exact_text, lexical_text, semantic_text)
-        return self.retriever.search(
+        return self.retriever.search_page(
             QueryPlan(
                 mode=selected_mode,
                 date_from=date_from,
@@ -108,6 +146,8 @@ class Zenith:
                 lexical_text=lexical_text,
                 semantic_text=semantic_text,
                 limit=limit,
+                offset=offset,
+                order=order,
             )
         )
 
@@ -178,7 +218,11 @@ class Zenith:
 
     def get_backlinks(self, note_id: str) -> tuple[SearchResult, ...]:
         self._entries_for_note(note_id)
-        return self.retriever.get_backlinks(note_id)
+        return self.get_backlinks_page(note_id).items
+
+    def get_backlinks_page(self, note_id: str, *, limit: int = 10, offset: int = 0) -> Page[SearchResult]:
+        self._entries_for_note(note_id)
+        return self.retriever.get_backlinks_page(note_id, limit=limit, offset=offset)
 
     def resolve_link(self, source_note_id: str, target_text: str) -> Link:
         notes = self._parsed_notes()
@@ -264,9 +308,37 @@ class Zenith:
         semantic_text: str | None = None,
         limit: int = 10,
     ) -> tuple[SearchResult, ...]:
+        return self.find_kanban_cards_page(
+            board=board,
+            columns=columns,
+            statuses=statuses,
+            checked=checked,
+            tags=tags,
+            date_from=date_from,
+            date_to=date_to,
+            exact_text=exact_text,
+            semantic_text=semantic_text,
+            limit=limit,
+        ).items
+
+    def find_kanban_cards_page(
+        self,
+        *,
+        board: str | None = None,
+        columns: tuple[str, ...] = (),
+        statuses: tuple[str, ...] = (),
+        checked: bool | None = None,
+        tags: tuple[str, ...] = (),
+        date_from: str | None = None,
+        date_to: str | None = None,
+        exact_text: str | None = None,
+        semantic_text: str | None = None,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> Page[SearchResult]:
         board_name = self.get_kanban_board(board).title if board is not None else None
         selected_mode = _mode(None, exact_text, None, semantic_text)
-        return self.retriever.search(
+        return self.retriever.search_page(
             QueryPlan(
                 mode=selected_mode,
                 tags_all=tags,
@@ -280,8 +352,28 @@ class Zenith:
                 kanban_statuses=statuses,
                 kanban_checked=checked,
                 limit=limit,
+                offset=offset,
             )
         )
+
+    def list_notes_page(
+        self, *, note_type: NoteType | None = None, limit: int = 20, offset: int = 0
+    ) -> Page[NoteSummary]:
+        """List every vault note, including empty notes Qdrant cannot represent."""
+        notes = self._parsed_notes()
+        counts = Counter(entry.note_id for entry in self.retriever.metadata_all())
+        summaries = [
+            NoteSummary(note.note_id, note.path, note.title, note.note_type, counts[note.note_id])
+            for note in notes
+            if note_type is None or note.note_type is note_type
+        ]
+        summaries.sort(key=lambda note: _key(note.path))
+        start = max(0, offset)
+        selected = summaries[start : start + limit + 1]
+        has_more = len(selected) > limit
+        if has_more:
+            selected.pop()
+        return Page(tuple(selected), has_more, start + limit if has_more else None)
 
     def export_graph(self) -> NetworkGraph:
         return GraphExporter(self.settings, vault_id=self.vault_id, client=self.client).export()

@@ -277,18 +277,33 @@ warning instead of losing text silently.
 query plan; it calls tools, and the trace of what it called is part of the
 result.
 
-It reaches the notes through five tools only: `search_notes`, `read_note`,
-`expand_context`, `find_backlinks`, and `find_tasks`. It cannot write to the
-vault and it cannot export the graph.
+It reaches the notes through six tools only: `search_notes`, `list_notes`,
+`read_note`, `expand_context`, `find_backlinks`, and `find_tasks`. It cannot
+write to the vault and it cannot export the graph. Collection tools return a
+bounded page with `items`, `has_more`, and, when another page exists,
+`next_offset`. Page offsets describe the current vault/index state rather than
+a durable snapshot.
+
+`search_notes` accepts no query for date-first metadata browsing: explicitly
+dated entries appear newest first, then undated entries in document order. Date
+filters include only entries carrying a matching `note_date` or `entry_date`.
+`list_notes` reads the vault catalog rather than the index, so empty and
+header-only notes remain discoverable. Kanban date filters work the same way:
+they match only explicit card annotations and carry no due, scheduled, or done
+meaning.
 
 **Citations are ids the run issued.** Every tool result carries a short id,
 `s1`, `s2`, `s3`, and the model cites that id rather than writing a citation of
 its own. An answer reads `You added an llm based parsing model. [s2]`, and the
 result's `citations` object resolves each id back to its note, heading, and
 line range. Ids count from `s1` per question and mean nothing outside the
-answer built from them. One entry reached twice keeps one id. A whole note read
-through `read_note` gets an id with no line range, because there is no one
-range to claim. An id the run never issued resolves to `{"unknown": true}`.
+answer built from them. One entry reached twice keeps one id. Multiple sources
+use adjacent ids, `[s2][s5]`; `[s2, s5]` is invalid. A whole note read through
+`read_note` gets an id with no line range, because there is no one range to
+claim. An id the run never issued resolves to `{"unknown": true}`. Zenith
+validates citation syntax after every answer. It makes one correction pass
+within the original request and tool-call budget; an answer that still fails is
+returned visibly marked with `citation_valid: false` and `citation_errors`.
 
 The model is served by LM Studio on the host over its OpenAI-compatible API,
 configured through the `ZENITH_LLM_*` variables. Enable "Serve on Local

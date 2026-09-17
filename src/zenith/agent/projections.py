@@ -13,6 +13,8 @@ from zenith.agent.sources import Sources
 from zenith.core.contracts import (
     ContextExpansion,
     NoteContent,
+    NoteSummary,
+    Page,
     SearchResult,
 )
 
@@ -70,6 +72,36 @@ def entries(
     sources: Sources, results: tuple[SearchResult, ...], *, match: str | None = None
 ) -> list[dict[str, Any]]:
     return [entry(sources, result, match=match) for result in results]
+
+
+def page(
+    sources: Sources, result: Page[SearchResult], *, match: str | None = None
+) -> dict[str, Any]:
+    projected: dict[str, Any] = {
+        "items": entries(sources, result.items, match=match),
+        "has_more": result.has_more,
+    }
+    if result.next_offset is not None:
+        projected["next_offset"] = result.next_offset
+    return projected
+
+
+def notes(result: Page[NoteSummary]) -> dict[str, Any]:
+    projected: dict[str, Any] = {
+        "items": [
+            {
+                "note": item.title,
+                "path": item.path,
+                "note_type": str(item.note_type),
+                "indexed_entries": item.indexed_entries,
+            }
+            for item in result.items
+        ],
+        "has_more": result.has_more,
+    }
+    if result.next_offset is not None:
+        projected["next_offset"] = result.next_offset
+    return projected
 
 
 def note(sources: Sources, content: NoteContent) -> dict[str, Any]:
