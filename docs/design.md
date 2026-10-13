@@ -278,6 +278,29 @@ Two cases cannot be divided: a single paragraph larger than the window, and a
 Kanban card, which is one atomic point. Both emit a `truncated_embedding_input`
 warning instead of losing text silently.
 
+### MCP excerpts and complete reads
+
+MCP evidence excerpts have a separate limit of 1,200 characters per indexed
+entry. This limit affects returned text, not the stored entry or its search
+vectors. A long note whose individual entries fit the limit is returned without
+excerpt clipping when those entries are retrieved. Token-based chunking does
+not guarantee that every entry fits a character-based excerpt limit; long
+paragraphs and atomic Kanban cards are the main cases to watch.
+
+Semantic, hybrid, lexical, and metadata results show the first 1,200 characters.
+Literal results attempt to center the excerpt around the verified phrase.
+Consequently, search may retrieve the correct entry while the returned opening
+hides the relevant explanation later in its text. For example, a long card's
+setup may fill the excerpt while its final paragraph explains why lifetime
+engagement totals were replaced with comparisons at equal monitored hours.
+
+`text_truncated` discloses clipping. Clients should use `read_note` with the
+returned note ID and source lines to inspect omitted evidence, following read
+pagination as needed. Excerpt clipping is separate from dense-embedding
+truncation: improving an excerpt cannot recover semantic recall for text that
+never reached the embedding model. Query-relevant excerpts remain deferred;
+the current workaround is a source read.
+
 ## 9. Legacy answering layer
 
 Zenith Vault v1 exposes its agent-independent tool contract through MCP; see
