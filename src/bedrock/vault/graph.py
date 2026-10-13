@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 from threading import Lock
 from typing import Any
@@ -18,6 +19,25 @@ from bedrock.parser.service import VaultParser
 TAG = re.compile(r"(?<![\w/#])#([\w-]+(?:/[\w-]+)*)", re.UNICODE)
 
 
+@dataclass(frozen=True, slots=True)
+class GraphResponse:
+    body: bytes
+    etag: str
+
+
+def _responses(snapshot: dict[str, Any], cosmograph: dict[str, Any]) -> dict[str, GraphResponse]:
+    result = {}
+    for name, data in {
+        "snapshot": snapshot,
+        "cosmograph": cosmograph,
+        "points": cosmograph["points"],
+        "links": cosmograph["links"],
+    }.items():
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        result[name] = GraphResponse(body, f'"{hashlib.sha256(body).hexdigest()}"')
+    return result
+
+
 class GraphSnapshotCache:
     """Atomically publish a snapshot only at startup and watcher callbacks."""
 
@@ -25,6 +45,7 @@ class GraphSnapshotCache:
         self.settings = settings
         self._snapshot: dict[str, Any] | None = None
         self._cosmograph: dict[str, Any] | None = None
+        self._responses: dict[str, GraphResponse] = {}
         self._error: Exception | None = None
         self._lock = Lock()
 
@@ -34,11 +55,13 @@ class GraphSnapshotCache:
             try:
                 snapshot = graph_snapshot(self.settings)
                 cosmograph = cosmograph_data(snapshot)
+                responses = _responses(snapshot, cosmograph)
             except Exception as error:
                 self._error = error
                 raise
             self._snapshot = snapshot
             self._cosmograph = cosmograph
+            self._responses = responses
             self._error = None
 
     def get(self) -> dict[str, Any]:
@@ -48,6 +71,7 @@ class GraphSnapshotCache:
             if self._snapshot is None:
                 self._snapshot = graph_snapshot(self.settings)
                 self._cosmograph = cosmograph_data(self._snapshot)
+                self._responses = _responses(self._snapshot, self._cosmograph)
             return self._snapshot
 
     def get_cosmograph(self) -> dict[str, Any]:
@@ -57,6 +81,13 @@ class GraphSnapshotCache:
                 raise self._error
             assert self._cosmograph is not None
             return self._cosmograph
+
+    def get_response(self, name: str) -> GraphResponse:
+        self.get()
+        with self._lock:
+            if self._error is not None:
+                raise self._error
+            return self._responses[name]
 
 
 def cosmograph_data(snapshot: dict[str, Any]) -> dict[str, Any]:

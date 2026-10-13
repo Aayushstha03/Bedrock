@@ -146,6 +146,8 @@ uses this as the application container's default process and publishes it at
 - HTTP `200` when ready
 - HTTP `503` when any required component is not ready
 
+Graph routes and the `GET /events` notification stream are described below.
+
 ### `health`
 
 ```bash
@@ -756,6 +758,63 @@ point ID to `id`, label to `label`, and link endpoints to `source`/`target`.
 Use `type`, `folder`, or `note_type` for point colors and `degree` for size.
 Link `weight` counts wikilink occurrences (tag membership has weight 1).
 Download both after edits settle to keep the tables consistent.
+
+Every graph route supports conditional GET with a strong content-derived
+`ETag`. Save the response's ETag and send it in `If-None-Match` on the next
+request to the same route. Matching validators return HTTP 304 with ETag and
+no response body; keep existing data and skip rerendering. Nonmatching
+validators return HTTP 200, the current JSON, and its ETag. Weak validators,
+comma-separated validator lists, and `*` are supported. Unavailable snapshots
+still return HTTP 503, even with a matching validator. Each representation
+has its own ETag, computed with its encoded JSON only when the cache rebuilds.
+Identical JSON retains the same ETag across rebuilds and process restarts.
+Responses use `Cache-Control: private, no-cache` so consumers revalidate before
+using a privately cached response.
+
+```bash
+curl -i -H 'If-None-Match: "ETAG_FROM_PREVIOUS_RESPONSE"' \
+  http://localhost:8080/graph/snapshot
+```
+
+### Live notifications (`GET /events`)
+
+```bash
+curl -N http://localhost:8080/events
+```
+
+Returns `text/event-stream` with named SSE events, an SSE `id` matching the
+JSON `sequence`, a 15-second comment heartbeat, and a two-second reconnect
+interval. Event payloads look like:
+
+```text
+id: 42
+event: notes.changed
+data: {"type":"notes.changed","paths":["projects/zenith.md"],"deleted_paths":[],"rescan":false,"sequence":42}
+
+id: 43
+event: graph.updated
+data: {"type":"graph.updated","etag":"\"abc123\"","sequence":43}
+```
+
+`notes.changed` is published after filesystem debouncing, before graph
+rebuilding. Paths are vault-relative Markdown paths; deletions include old
+rename paths. Prose-only edits still notify. A structural change/startup
+catch-up uses `rescan: true`, includes current discovered paths and known
+deleted paths, and asks clients to refresh all relevant state.
+
+`graph.updated` is published only after the rebuilt snapshot is available and
+its `/graph/snapshot` ETag changes. Failed builds do not emit graph updates;
+the existing watcher retries. Initial successful graph preparation can emit
+an update. These events do not signal retrieval/index readiness. The other
+graph representations have their own ETags; use conditional GET for the
+representation the GUI renders.
+
+This is a notification channel, not a durable event log. There is no replay
+for `Last-Event-ID`, sequences reset with the process, and disconnected clients
+may miss events. Revalidate the graph and refresh the open note on every
+connection/reconnection. Each client has a bounded queue of 64 events; overflow
+disconnects it so it can reconnect and resync. Disconnections clean up stream
+subscriptions. Consumers use HTTP/MCP to read current content.
 
 ### `graph export`
 

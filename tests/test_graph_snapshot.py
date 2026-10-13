@@ -53,6 +53,7 @@ def test_snapshot_ambiguity_exclusions_and_empty_vault(tmp_path):
 def response(config, path):
     handler = _handler(config).__new__(_handler(config))
     handler.path = path
+    handler.headers = {}
     handler.wfile = io.BytesIO()
     statuses = []
     handler.send_response = statuses.append
@@ -196,6 +197,7 @@ def test_cosmograph_json_routes_send_download_headers(tmp_path):
     handler_type = _handler(settings(tmp_path))
     handler = handler_type.__new__(handler_type)
     handler.path = "/graph/cosmograph/points.json"
+    handler.headers = {}
     handler.wfile = io.BytesIO()
     headers = {}
     handler.send_response = lambda status: None
@@ -204,3 +206,81 @@ def test_cosmograph_json_routes_send_download_headers(tmp_path):
     handler.do_GET()
     assert headers["Content-Disposition"] == 'attachment; filename="points.json"'
     assert json.loads(handler.wfile.getvalue()) == []
+
+
+def http_response(handler_type, path, validator=None):
+    handler = handler_type.__new__(handler_type)
+    handler.path = path
+    handler.headers = {} if validator is None else {"If-None-Match": validator}
+    handler.wfile = io.BytesIO()
+    headers = {}
+    statuses = []
+    handler.send_response = statuses.append
+    handler.send_header = lambda key, value: headers.update({key: value})
+    handler.end_headers = lambda: None
+    handler.do_GET()
+    return statuses[0], headers, handler.wfile.getvalue()
+
+
+def test_graph_routes_support_conditional_get_without_serializing_again(monkeypatch, tmp_path):
+    import hashlib
+
+    from bedrock.vault.graph import GraphSnapshotCache
+
+    cache = GraphSnapshotCache(settings(tmp_path))
+    cache.rebuild()
+    handler = _handler(settings(tmp_path), cache)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("request must reuse encoded response and ETag")
+
+    monkeypatch.setattr("bedrock.vault.graph.json.dumps", fail)
+    for path in (
+        "/graph/snapshot",
+        "/graph/cosmograph",
+        "/graph/cosmograph/points.json",
+        "/graph/cosmograph/links.json",
+    ):
+        status, headers, body = http_response(handler, path)
+        assert status == 200
+        etag = headers["ETag"]
+        assert etag == f'"{hashlib.sha256(body).hexdigest()}"'
+        assert headers["Cache-Control"] == "private, no-cache"
+        assert int(headers["Content-Length"]) == len(body)
+        for validator in (etag, f"W/{etag}", f'"old", W/{etag}', "*"):
+            status, not_modified, body = http_response(handler, path, validator)
+            assert status == 304
+            assert body == b""
+            assert not_modified["ETag"] == etag
+            assert not_modified["Cache-Control"] == headers["Cache-Control"]
+            assert "Content-Length" not in not_modified
+        assert http_response(handler, path, '"stale"')[0] == 200
+
+
+def test_etag_changes_only_when_response_changes_and_survives_restart(tmp_path):
+    from bedrock.vault.graph import GraphSnapshotCache
+
+    note = tmp_path / "Note.md"
+    note.write_text("hello")
+    config = settings(tmp_path)
+    cache = GraphSnapshotCache(config)
+    handler = _handler(config, cache)
+    _, headers, _ = http_response(handler, "/graph/snapshot")
+    etag = headers["ETag"]
+    note.write_text("changed prose without changing graph")
+    cache.rebuild(("Note.md",))
+    assert http_response(handler, "/graph/snapshot", etag)[0] == 304
+    assert http_response(_handler(config), "/graph/snapshot", etag)[0] == 304
+    note.write_text("#newtag")
+    cache.rebuild(("Note.md",))
+    status, headers, body = http_response(handler, "/graph/snapshot", etag)
+    assert status == 200
+    assert headers["ETag"] != etag
+    assert any(node["label"] == "#newtag" for node in json.loads(body)["nodes"])
+
+
+def test_conditional_get_does_not_hide_unavailable_vault(tmp_path):
+    status, headers, body = http_response(_handler(settings(tmp_path / "missing")), "/graph/snapshot", "*")
+    assert status == 503
+    assert "ETag" not in headers
+    assert json.loads(body) == {"error": "vault snapshot unavailable"}

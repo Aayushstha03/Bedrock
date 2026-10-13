@@ -7,6 +7,7 @@ import json
 import sys
 from dataclasses import asdict, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from queue import Empty
 from threading import Event
 from typing import Any, TextIO
 from urllib.parse import urlsplit
@@ -23,6 +24,7 @@ from bedrock.parser.service import VaultParser
 from bedrock.parser.watcher import VaultWatcher
 from bedrock.runtime.health import encode_report, health_report, llm_health
 from bedrock.runtime.models import prefetch, readiness
+from bedrock.vault.events import HEARTBEAT_SECONDS, EventBus, GraphUpdates, NoteChangePublisher, encode_sse
 from bedrock.vault.graph import GraphSnapshotCache
 
 
@@ -35,12 +37,17 @@ def _print(data: object, *, file: TextIO | None = None) -> None:
     print(json.dumps(data, indent=2, sort_keys=True, default=str), file=file or sys.stdout)
 
 
-def _handler(settings: Settings, snapshots: GraphSnapshotCache | None = None) -> type[BaseHTTPRequestHandler]:
+def _handler(
+    settings: Settings, snapshots: GraphSnapshotCache | None = None, events: EventBus | None = None
+) -> type[BaseHTTPRequestHandler]:
     snapshots = snapshots or GraphSnapshotCache(settings)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             path = urlsplit(self.path).path
+            if path == "/events" and events is not None:
+                self._events()
+                return
             graph_routes = {
                 "/graph/snapshot",
                 "/graph/cosmograph",
@@ -48,19 +55,30 @@ def _handler(settings: Settings, snapshots: GraphSnapshotCache | None = None) ->
                 "/graph/cosmograph/links.json",
             }
             if path in graph_routes:
+                filename = path.rsplit("/", 1)[-1] if path.endswith(".json") else None
+                name = filename.removesuffix(".json") if filename else path.rsplit("/", 1)[-1]
                 try:
-                    if path == "/graph/snapshot":
-                        snapshot = snapshots.get()
-                    else:
-                        snapshot = snapshots.get_cosmograph()
+                    response = snapshots.get_response(name)
                 except (OSError, ValueError):
                     self._json(503, {"error": "vault snapshot unavailable"})
                     return
-                filename = None
-                if path.endswith(".json"):
-                    filename = path.rsplit("/", 1)[-1]
-                    snapshot = snapshot[filename.removesuffix(".json")]
-                self._json(200, snapshot, filename=filename)
+                # GET uses weak comparison for If-None-Match, including lists.
+                validators = self.headers.get("If-None-Match", "")
+                unchanged = any(
+                    tag.strip() == "*" or tag.strip().removeprefix("W/") == response.etag
+                    for tag in validators.split(",")
+                )
+                self.send_response(304 if unchanged else 200)
+                self.send_header("ETag", response.etag)
+                self.send_header("Cache-Control", "private, no-cache")
+                if not unchanged:
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(response.body)))
+                    if filename is not None:
+                        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.end_headers()
+                if not unchanged:
+                    self.wfile.write(response.body)
                 return
             if self.path not in {"/health", "/healthz"}:
                 self.send_error(404)
@@ -73,16 +91,44 @@ def _handler(settings: Settings, snapshots: GraphSnapshotCache | None = None) ->
             self.end_headers()
             self.wfile.write(body)
 
-        def _json(self, status: int, data: object, *, filename: str | None = None) -> None:
+        def _json(self, status: int, data: object) -> None:
             body = json.dumps(data, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
-            if filename is not None:
-                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.end_headers()
             self.wfile.write(body)
+
+        def _events(self) -> None:
+            assert events is not None
+            stream = events.open_stream()
+            self.close_connection = True
+            # Bound writes to clients that stop reading; queues are bounded too.
+            self.connection.settimeout(10)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                self.wfile.write(b"retry: 2000\n: connected; revalidate current state\n\n")
+                self.wfile.flush()
+                while True:
+                    try:
+                        event = stream.get(timeout=HEARTBEAT_SECONDS)
+                    except Empty:
+                        body = b": heartbeat\n\n"
+                    else:
+                        if event is None:
+                            return
+                        body = encode_sse(event)
+                    self.wfile.write(body)
+                    self.wfile.flush()
+            except OSError:
+                pass  # Client disconnected or stopped reading.
+            finally:
+                events.close_stream(stream)
 
         def log_message(self, format: str, *args: object) -> None:
             return
@@ -229,12 +275,16 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
         return 0
     if args.command == "serve":
         snapshots = GraphSnapshotCache(settings)
-        server = ThreadingHTTPServer((settings.host, settings.port), _handler(settings, snapshots))
+        events = EventBus()
+        GraphUpdates(snapshots, events)
+        changes = NoteChangePublisher(settings, events)
+        server = ThreadingHTTPServer((settings.host, settings.port), _handler(settings, snapshots, events))
         try:
-            with VaultWatcher(settings, snapshots.rebuild) as watcher:
+            with VaultWatcher(settings, changes.changed) as watcher:
                 watcher.catch_up()
                 server.serve_forever()
         finally:
+            events.close()
             server.server_close()
         return 0
     if args.command == "health":

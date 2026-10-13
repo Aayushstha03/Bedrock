@@ -88,6 +88,49 @@ the indexing watcher runs in a separate process. Failed rebuilds retry through
 the watcher and return HTTP 503 until recovery rather than serving stale success.
 The existing `bedrock graph export` remains the separate index-backed export.
 
+All graph HTTP routes return a content-derived `ETag`. Store that header and
+send it as `If-None-Match` on subsequent GET requests. An unchanged response
+returns HTTP 304 with no body; retain the previous data and skip rerendering.
+Changed responses return HTTP 200 with fresh JSON and a new ETag. JSON bytes
+and ETags are cached at rebuild time, so polling does not reserialize or hash
+the graph. ETags belong to each response representation; edits that leave its
+JSON unchanged retain its ETag. `Cache-Control: private, no-cache` allows
+private caching while requiring revalidation before reuse.
+
+### Live change notifications
+
+Connect to `http://localhost:8080/events` with Server-Sent Events (SSE):
+
+```javascript
+const events = new EventSource("http://localhost:8080/events");
+events.addEventListener("notes.changed", event => {
+  const { paths, deleted_paths, rescan } = JSON.parse(event.data);
+  // Refresh an open note if its path changed/deleted, or rescan is true.
+});
+events.addEventListener("graph.updated", event => {
+  const { etag } = JSON.parse(event.data);
+  // Revalidate /graph/snapshot with If-None-Match; rerender on HTTP 200.
+});
+events.onopen = () => {
+  // On every connection/reconnection, revalidate graph and refresh open note.
+};
+// Call events.close() when the GUI no longer needs notifications.
+```
+
+`notes.changed` follows a debounced watcher batch and includes vault-relative
+`paths`, `deleted_paths`, and a process-local `sequence`. It fires for prose
+edits even when the graph stays unchanged. Renames include the new path and
+deleted old path. `rescan: true` requests a full refresh for structural changes
+and startup catch-up. `graph.updated` includes the `/graph/snapshot` `etag` and
+`sequence`, and fires only after a changed graph is readable. These do not
+indicate search-index readiness. Notifications are ephemeral; there is no
+replay of `Last-Event-ID`, and sequences reset on server restart. Heartbeats
+keep the connection active; slow clients are disconnected to reconnect and
+resync. Use HTTP/MCP reads as the source of current state. The HTTP server's
+watcher publishes to an internal bus, separately consumed by the graph cache
+and SSE clients; Zenith does not need a filesystem watcher. The existing
+indexing watcher continues independently.
+
 For [Cosmograph](https://run.cosmograph.app/), download the two flat JSON tables:
 
 - Points: `http://localhost:8080/graph/cosmograph/points.json`
