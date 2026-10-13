@@ -45,6 +45,17 @@ configuration variables and run `uv run zenith-vault watch` separately.
 
 ## Tools
 
+The server supplies usage instructions during MCP initialization and publishes
+each tool's workflow, constraints, and follow-up guidance in its description.
+Descriptions cover search-mode selection, evidence verification, source reads,
+pagination, date intervals, Kanban states, and context continuations. Clients
+should make server instructions and relevant tool descriptions available to the
+model. These describe Zenith's capabilities; the host retains control over its
+general answering behavior, permissions, and citation presentation. No separate
+Zenith-specific agent prompt or MCP prompt template is required to discover the
+tool workflow. Client handling of initialization instructions can vary, so key
+rules also appear in individual tool descriptions.
+
 | Tool | Purpose | Important arguments |
 | --- | --- | --- |
 | `search_notes` | Search or browse indexed entries | `query`, `mode`, `note`, `section`, `entry_types`, dates, `tags_all`, `tags_any` |
