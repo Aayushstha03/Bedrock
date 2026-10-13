@@ -27,6 +27,7 @@ class Evidence(BaseModel):
     end_line: int
     note_date: str | None
     entry_date: str | None
+    entry_date_end: str | None = None
     tags: list[str]
     mode: RetrievalMode
     text: str
@@ -91,6 +92,13 @@ class RelatedEvidence(Evidence):
     via_note_id: str | None
 
 
+class SectionContinuation(BaseModel):
+    note_id: str
+    section: str
+    start_line: int
+    end_line: int
+
+
 class ContextResult(BaseModel):
     source_entry_id: str
     items: list[RelatedEvidence]
@@ -98,6 +106,7 @@ class ContextResult(BaseModel):
     truncated: bool
     budget_reasons: list[str]
     inspected_note_ids: list[str]
+    section_continuations: list[SectionContinuation] = Field(default_factory=list)
 
 
 class VaultStatus(BaseModel):

@@ -82,7 +82,11 @@ The Qdrant dashboard is at <http://localhost:6333/dashboard>.
 - **Dates:** use exact `YYYY-MM-DD` filenames for daily notes. Inside the
   configured logs folder, an exact date on the first nonempty body line is also
   accepted. Dated headings in ordinary notes must contain only `YYYY-MM-DD`;
-  child sections inherit their date. Dates mentioned in prose or properties
+  child sections inherit their date. For a compacted project log, use a heading
+  containing exactly `YYYY-MM-DD to YYYY-MM-DD`, e.g.
+  `### 2026-10-01 to 2026-10-02`; endpoints are inclusive and date filters
+  match any overlapping day. Results expose the start as `entry_date` and the
+  end as `entry_date_end`. Dates mentioned in prose or properties
   and filesystem timestamps do not establish chronology.
 - **Kanban state:** checkbox state and column status are separate. `todo`,
   `to do`, and `backlog` map to `todo`; `doing`, `in progress`, and `active` map
@@ -95,17 +99,21 @@ The Qdrant dashboard is at <http://localhost:6333/dashboard>.
   retain the first date.
 - **Links:** use `[[Note]]` or `[[Note#Heading]]` (including a vault-relative
   note path such as `[[projects/Note.md#Heading]]`). Heading names must match
-  the stored heading exactly. Block references and same-note heading links
+  the stored heading exactly. Explicit heading links expand every indexed
+  entry in the section, including child headings, within the output budget.
+  `section_continuations` identifies omitted source lines for `read_note`.
+  Block references and same-note heading links
   are not supported by graph traversal.
 - **Technical snippets:** inline code and code blocks are searchable alongside
   prose. Tags and wikilinks inside code remain literal text rather than tags
   or graph connections. Original Markdown is available through `read_note`.
 
-After upgrading to searchable code, refresh the existing index:
+After upgrading to date-range support, rebuild the existing index to create
+the new date-end payload index and refresh searchable entries:
 
 ```bash
 docker compose restart zenith watch mcp
-docker compose exec zenith zenith index update
+docker compose exec zenith zenith index rebuild
 ```
 
 ## Working on it

@@ -460,3 +460,80 @@ def test_hybrid_requires_both_query_texts(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="hybrid mode requires both"):
         retriever.search(QueryPlan(mode=RetrievalMode.HYBRID, lexical_text="only lexical"))
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("2026-10-01", "2026-10-01", True),
+        ("2026-10-02", "2026-10-02", True),
+        ("2026-09-30", "2026-09-30", False),
+        ("2026-10-03", "2026-10-03", False),
+        ("2026-09-30", "2026-10-03", True),
+        ("2026-10-02", None, True),
+        ("2026-10-03", None, False),
+        (None, "2026-10-01", True),
+        (None, "2026-09-30", False),
+    ],
+)
+def test_date_filters_match_inclusive_entry_intervals(tmp_path, start, end, expected):
+    client = real_client(tmp_path)
+    try:
+        upsert_point(
+            client,
+            1,
+            base_payload(
+                entry_id="recap",
+                entry_date="2026-10-01T00:00:00Z",
+                entry_date_end="2026-10-02T00:00:00Z",
+            ),
+        )
+        retriever = Retriever(make_settings(FIXTURE_VAULT, tmp_path), client=client)
+        matches = retriever.search(QueryPlan(mode=RetrievalMode.METADATA, date_from=start, date_to=end))
+        assert bool(matches) is expected
+        if matches:
+            assert matches[0].entry_date == "2026-10-01"
+            assert matches[0].entry_date_end == "2026-10-02"
+    finally:
+        client.close()
+
+
+def test_compacted_log_and_heading_link_round_trip(tmp_path):
+    from zenith.retrieval.context import ContextExpander
+
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "Source.md").write_text("## Work\nSee [[Project#2026-10-01 to 2026-10-02]].\n")
+    (vault / "Project.md").write_text(
+        "## 2026-10-01 to 2026-10-02\n"
+        + "First decision. " * 30
+        + "\n\n"
+        + "Second decision. " * 30
+        + "\n"
+        + "### Detail\nChild evidence.\n"
+        + "## 2026-10-03\nLater evidence.\n"
+    )
+    settings = make_settings(vault, tmp_path)
+    client = QdrantClient(path=str(tmp_path / "qdrant"))
+    try:
+        IndexRebuilder(settings, client=client, encoders=HashEncoders()).rebuild()
+        retriever = Retriever(settings, client=client)
+        entries = retriever.metadata_all(
+            QueryPlan(
+                mode=RetrievalMode.METADATA,
+                date_from="2026-10-02",
+                date_to="2026-10-02",
+            )
+        )
+        assert len(entries) >= 3
+        assert all(e.entry_date == "2026-10-01" and e.entry_date_end == "2026-10-02" for e in entries)
+        source = next(e for e in retriever.metadata_all() if e.path == "Source.md")
+        expansion = ContextExpander(retriever).expand(source.entry_id)
+        assert [i.result.entry_id for i in expansion.items[1:]] == [e.entry_id for e in entries]
+        assert not expansion.truncated
+        partial = ContextExpander(retriever).expand(source.entry_id, max_items=2)
+        continuation = partial.section_continuations[0]
+        assert continuation.start_line == entries[1].start_line
+        assert continuation.end_line == entries[-1].end_line
+    finally:
+        client.close()

@@ -102,6 +102,9 @@ class FakeRetriever:
         }.get(note_id, ())
 
     def metadata_all(self, plan):
+        if plan.section is not None:
+            assert plan.section == "2026-08-19"
+            return (self.project,)
         assert plan.note_id == "project"
         assert plan.entry_types == (EntryType.PROJECT_UPDATE,)
         assert (plan.date_from, plan.date_to) == ("2026-08-17", "2026-08-23")
@@ -122,7 +125,6 @@ def test_daily_to_project_expansion_labels_context_and_terminates_cycles() -> No
     assert ContextLabel.BACKLINK in by_id["backlink-entry"].labels
     assert expansion.inspected_note_ids == ("project", "backlink")
     assert retriever.within_calls == [
-        ("project", "2026-08-19"),
         ("backlink", None),
     ]
     assert {diagnostic.resolution for diagnostic in expansion.diagnostics} == {
@@ -164,3 +166,66 @@ def test_context_caps_total_items_and_reports_history_omissions() -> None:
 def test_context_reports_unvisited_notes() -> None:
     expansion = ContextExpander(FakeRetriever()).expand("daily-entry", max_notes=1)
     assert expansion.truncated and "max_notes" in expansion.budget_reasons
+
+
+class SectionRetriever(FakeRetriever):
+    def __init__(self):
+        super().__init__()
+        self.source = replace(
+            self.source,
+            note_date=None,
+            outgoing_links=(
+                Link("Project", "project", target_heading="Decision", resolution=LinkResolution.RESOLVED),
+                Link("Project", "project", target_heading="Results", resolution=LinkResolution.RESOLVED),
+            ),
+        )
+        self.sections = {
+            "Decision": (
+                replace(result("decision-1", "project"), start_line=4, end_line=7),
+                replace(result("decision-child", "project"), start_line=9, end_line=12),
+            ),
+            "Results": (replace(result("results", "project"), start_line=15, end_line=19),),
+        }
+
+    def get_backlinks(self, note_id):
+        return ()
+
+    def metadata_all(self, plan):
+        assert plan.mode is RetrievalMode.METADATA
+        return self.sections[plan.section]
+
+
+def test_explicit_links_include_all_chunks_and_distinct_headings_in_one_note():
+    retriever = SectionRetriever()
+    expansion = ContextExpander(retriever).expand("daily-entry", max_notes=1)
+    assert [item.result.entry_id for item in expansion.items] == [
+        "daily-entry",
+        "decision-1",
+        "decision-child",
+        "results",
+    ]
+    assert expansion.inspected_note_ids == ("project",)
+    assert not expansion.truncated
+    assert not retriever.within_calls
+
+
+def test_section_budget_returns_source_continuations_for_partial_and_deferred_sections():
+    expansion = ContextExpander(SectionRetriever()).expand("daily-entry", max_items=2)
+    assert [item.result.entry_id for item in expansion.items] == ["daily-entry", "decision-1"]
+    assert expansion.truncated and "max_items" in expansion.budget_reasons
+    assert [(c.section, c.start_line, c.end_line) for c in expansion.section_continuations] == [
+        ("Decision", 9, 12),
+        ("Results", 15, 19),
+    ]
+
+
+def test_links_from_later_section_chunks_are_traversed():
+    retriever = SectionRetriever()
+    first, child = retriever.sections["Decision"]
+    retriever.sections["Decision"] = (
+        first,
+        replace(child, outgoing_links=(Link("Other", "other", resolution=LinkResolution.RESOLVED),)),
+    )
+    expansion = ContextExpander(retriever).expand("daily-entry", link_depth=2)
+    assert "other" in expansion.inspected_note_ids
+    assert ("other", None) in retriever.within_calls

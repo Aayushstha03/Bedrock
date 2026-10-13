@@ -33,7 +33,7 @@ from zenith.parser.markdown import (
 )
 from zenith.parser.tokens import content_budget, estimate_tokens
 
-PARSER_VERSION = "3.2.0"
+PARSER_VERSION = "3.3.0"
 
 
 class VaultParser:
@@ -180,6 +180,7 @@ class VaultParser:
             warnings.extend(prose.warnings)
 
         for heading in parsed_headings:
+            entry_date_end = heading.active_date_end if note_type is not NoteType.LOG else None
             if note_type is NoteType.LOG:
                 entry_type = EntryType.DAILY_SECTION
                 entry_date = None
@@ -201,6 +202,7 @@ class VaultParser:
                 note_type=note_type,
                 note_date=note_date,
                 entry_date=entry_date,
+                entry_date_end=entry_date_end,
                 warnings=warnings,
             )
             if not pieces:
@@ -236,6 +238,7 @@ class VaultParser:
                         entry_date,
                         prose,
                         structural_key,
+                        entry_date_end=entry_date_end,
                     )
                 )
                 warnings.extend(prose.warnings)
@@ -255,6 +258,7 @@ class VaultParser:
         note_date: str | None,
         entry_date: str | None,
         warnings: list[IndexWarning],
+        entry_date_end: str | None = None,
     ) -> list[tuple[Chunk, Prose]]:
         """Split one line range into chunks that fit the dense token budget."""
         blocks = paragraphs(lines, start_zero, end_zero)
@@ -270,7 +274,9 @@ class VaultParser:
         # Every chunk's tags are a subset of the range's tags, so pricing the
         # label prefix with all of them keeps the budget conservative.
         all_tags = tuple(dict.fromkeys(tag for prose in per_paragraph for tag in prose.tags))
-        prefix = _embedding_text(note_type, title, heading, note_date, entry_date, all_tags, "")
+        prefix = _embedding_text(
+            note_type, title, heading, note_date, entry_date, all_tags, "", entry_date_end
+        )
         budget = content_budget(prefix, self.settings.dense_token_window)
 
         result: list[tuple[Chunk, Prose]] = []
@@ -307,6 +313,7 @@ class VaultParser:
         entry_date: str | None,
         prose,
         structural_key: str,
+        entry_date_end: str | None = None,
     ) -> ParsedEntry:
         identifier = str(entry_id(note_uuid, entry_type, structural_key))
         return ParsedEntry(
@@ -318,13 +325,14 @@ class VaultParser:
             entry_type=entry_type,
             text=text,
             embedding_text=_embedding_text(
-                note_type, title, heading, note_date, entry_date, prose.tags, text
+                note_type, title, heading, note_date, entry_date, prose.tags, text, entry_date_end
             ),
             heading=heading,
             heading_path=heading_path,
             source=source,
             note_date=note_date,
             entry_date=entry_date,
+            entry_date_end=entry_date_end,
             tags=prose.tags,
             outgoing_links=prose.links,
             web_links=prose.web_links,
@@ -350,12 +358,13 @@ def _embedding_text(
     entry_date: str | None,
     tags: tuple[str, ...],
     text: str,
+    entry_date_end: str | None = None,
 ) -> str:
     labels = [f"Note: {title}"]
     if note_type is NoteType.LOG and note_date:
         labels.append(f"Date: {note_date}")
     if entry_date:
-        labels.append(f"Date: {entry_date}")
+        labels.append(f"Date: {entry_date}" + (f" to {entry_date_end}" if entry_date_end else ""))
     if heading:
         labels.append(f"Section: {heading}")
     if tags:

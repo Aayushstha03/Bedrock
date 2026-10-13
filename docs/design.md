@@ -69,7 +69,7 @@ carried for display and evidence, not for filtering.
 | `path`, `note_title` | keyword | Note resolution |
 | `note_type`, `entry_type` | keyword | Kind filtering |
 | `heading`, `heading_path` | keyword | Section filtering |
-| `note_date`, `entry_date` | datetime | Date and range queries |
+| `note_date`, `entry_date`, `entry_date_end` | datetime | Date and inclusive interval queries |
 | `tags` | keyword | Fixed-pool tag filtering |
 | `outgoing_note_ids` | keyword | Backlink queries |
 | `note_aliases` | keyword | The other names a note answers to |
@@ -217,7 +217,11 @@ Four date meanings stay separate and never merge:
 
 A date counts only when the complete value is a valid calendar date in the
 exact ASCII `YYYY-MM-DD` form. A heading that is only such a date establishes
-`entry_date` for the content it governs. No other representation does.
+`entry_date` for the content it governs. An exact `YYYY-MM-DD to YYYY-MM-DD`
+heading establishes an inclusive interval, stored as `entry_date` and
+`entry_date_end`; child headings inherit it unless they supply their own date.
+Both endpoints must be valid and the end must not precede the start. Date
+filters match interval overlap, without asserting which day each event occurred.
 
 Undated material stays searchable and stays undated. It does not inherit a date
 through proximity, and a link never transfers its date to its target.
@@ -294,7 +298,7 @@ a durable snapshot.
 
 `search_notes` accepts no query for date-first metadata browsing: explicitly
 dated entries appear newest first, then undated entries in document order. Date
-filters include only entries carrying a matching `note_date` or `entry_date`.
+filters match explicit note/entry dates or overlapping entry-date intervals.
 `list_notes` reads the vault catalog rather than the index, so empty and
 header-only notes remain discoverable. Kanban date filters work the same way:
 they match only explicit card annotations and carry no due, scheduled, or done

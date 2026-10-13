@@ -324,6 +324,8 @@ class VaultTools:
             entry_id, link_depth=link_depth, nearby_days=nearby_days, max_notes=max_notes, max_items=max_items
         )
         reasons = set(result.budget_reasons)
+        if len(result.section_continuations) > MAX_DIAGNOSTICS:
+            reasons.add("max_section_continuations")
         if len(result.diagnostics) > MAX_DIAGNOSTICS:
             reasons.add("max_diagnostics")
         return ContextResult(
@@ -341,6 +343,7 @@ class VaultTools:
             truncated=bool(reasons),
             budget_reasons=sorted(reasons),
             inspected_note_ids=list(result.inspected_note_ids),
+            section_continuations=[asdict(item) for item in result.section_continuations[:MAX_DIAGNOSTICS]],
         )
 
     def vault_status(self) -> VaultStatus:
@@ -441,6 +444,7 @@ def _evidence(result: SearchResult, query: str | None = None) -> Evidence:
         end_line=result.end_line,
         note_date=result.note_date,
         entry_date=result.entry_date,
+        entry_date_end=result.entry_date_end,
         tags=list(result.tags),
         mode=result.mode,
         text=snippet,

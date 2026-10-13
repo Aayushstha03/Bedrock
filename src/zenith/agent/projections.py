@@ -7,6 +7,7 @@ evidence. These functions decide what a tool actually returns.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from zenith.agent.sources import Sources
@@ -52,6 +53,8 @@ def entry(sources: Sources, result: SearchResult, *, match: str | None = None) -
     }
     if truncated:
         projected["text_truncated"] = True
+    if result.entry_date_end:
+        projected["date_end"] = result.entry_date_end
     # Only literal retrieval verifies an exact phrase. Similarity never does,
     # and must never be reported as if it had. Neither may a clipped body that
     # no longer contains the phrase: the model would be told the wording is
@@ -74,9 +77,7 @@ def entries(
     return [entry(sources, result, match=match) for result in results]
 
 
-def page(
-    sources: Sources, result: Page[SearchResult], *, match: str | None = None
-) -> dict[str, Any]:
+def page(sources: Sources, result: Page[SearchResult], *, match: str | None = None) -> dict[str, Any]:
     projected: dict[str, Any] = {
         "items": entries(sources, result.items, match=match),
         "has_more": result.has_more,
@@ -141,6 +142,12 @@ def context(sources: Sources, expansion: ContextExpansion) -> dict[str, Any]:
     projected: dict[str, Any] = {"items": items}
     if unresolved:
         projected["unresolved_links"] = unresolved
+    projected["truncated"] = expansion.truncated
+    projected["budget_reasons"] = list(expansion.budget_reasons)
+    if expansion.section_continuations:
+        projected["section_continuations"] = [
+            asdict(continuation) for continuation in expansion.section_continuations
+        ]
     return projected
 
 

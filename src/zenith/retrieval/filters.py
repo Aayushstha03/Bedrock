@@ -56,6 +56,18 @@ def build_filter(plan: QueryPlan, vault_id: str) -> models.Filter:
                 should=[
                     models.FieldCondition(key="note_date", range=date_range),
                     models.FieldCondition(key="entry_date", range=date_range),
+                    # Inclusive overlap: stored start <= query end, stored
+                    # end >= query start. Single dates use the branch above.
+                    models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="entry_date", range=models.DatetimeRange(lte=date_range.lte)
+                            ),
+                            models.FieldCondition(
+                                key="entry_date_end", range=models.DatetimeRange(gte=date_range.gte)
+                            ),
+                        ]
+                    ),
                 ]
             )
         )

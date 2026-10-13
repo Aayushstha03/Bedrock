@@ -138,6 +138,7 @@ class IndexRebuilder:
             end_line=entry.source.end_line,
             note_date=_qdrant_date(entry.note_date),
             entry_date=_qdrant_date(entry.entry_date),
+            entry_date_end=_qdrant_date(entry.entry_date_end),
             tags=entry.tags,
             outgoing_note_ids=outgoing_ids,
             outgoing_links=entry.outgoing_links,

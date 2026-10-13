@@ -15,6 +15,7 @@ from zenith.core.contracts import (
     QueryPlan,
     RetrievalMode,
     SearchResult,
+    SectionContinuation,
     TraversalDiagnostic,
 )
 from zenith.retrieval.service import Retriever
@@ -63,29 +64,75 @@ class ContextExpander:
 
         candidates, diagnostics = self._candidates(source)
         queue = deque((candidate, 1) for candidate in candidates)
-        visited = {source.note_id}
+        visited = {(source.note_id, None)}
         inspected: list[str] = []
         seen_items = {source.entry_id}
+        continuations: list[SectionContinuation] = []
         anchor = _evidence_date(source)
+        anchor_end = date.fromisoformat(source.entry_date_end) if source.entry_date_end else anchor
 
-        while queue and len(inspected) < max_notes and len(items) < max_items:
+        def section_matches(candidate: _Candidate) -> tuple[SearchResult, ...]:
+            return self.retriever.metadata_all(
+                QueryPlan(mode=RetrievalMode.METADATA, note_id=candidate.note_id, section=candidate.section)
+            )
+
+        def continue_section(candidate: _Candidate, omitted: tuple[SearchResult, ...]) -> None:
+            if omitted and candidate.section is not None:
+                continuations.append(
+                    SectionContinuation(
+                        candidate.note_id,
+                        candidate.section,
+                        omitted[0].start_line,
+                        omitted[-1].end_line,
+                    )
+                )
+
+        while queue:
             candidate, depth = queue.popleft()
-            if candidate.note_id in visited or depth > link_depth:
+            key = (candidate.note_id, candidate.section)
+            if key in visited or depth > link_depth:
                 continue
-            visited.add(candidate.note_id)
-            inspected.append(candidate.note_id)
+            if len(items) >= max_items or (
+                candidate.note_id not in inspected and len(inspected) >= max_notes
+            ):
+                reasons.add("max_items" if len(items) >= max_items else "max_notes")
+                # Disclose heading targets that the budget prevented visiting.
+                pending = [(candidate, depth), *queue]
+                for remaining, remaining_depth in pending:
+                    remaining_key = (remaining.note_id, remaining.section)
+                    if remaining_key in visited or remaining_depth > link_depth:
+                        continue
+                    visited.add(remaining_key)
+                    if remaining.section is not None:
+                        continue_section(remaining, section_matches(remaining))
+                break
+            visited.add(key)
+            if candidate.note_id not in inspected:
+                inspected.append(candidate.note_id)
 
-            matches = self.retriever.search_within(
-                candidate.note_id,
-                source.text,
-                mode=mode if source.text.strip() else RetrievalMode.METADATA,
-                section=candidate.section,
-                limit=1,
+            # Explicit anchors select every indexed entry in source order,
+            # including descendants. Plain links still select one passage.
+            matches = (
+                section_matches(candidate)
+                if candidate.section is not None
+                else self.retriever.search_within(
+                    candidate.note_id,
+                    source.text,
+                    mode=mode if source.text.strip() else RetrievalMode.METADATA,
+                    limit=1,
+                )
             )
             if not matches:
                 continue
-            match = matches[0]
-            if match.entry_id not in seen_items:
+            selected: list[SearchResult] = []
+            for position, match in enumerate(matches):
+                if match.entry_id in seen_items:
+                    selected.append(match)
+                    continue
+                if len(items) >= max_items:
+                    reasons.add("max_items")
+                    continue_section(candidate, matches[position:])
+                    break
                 items.append(
                     ContextItem(
                         result=match,
@@ -95,13 +142,19 @@ class ContextExpander:
                     )
                 )
                 seen_items.add(match.entry_id)
+                selected.append(match)
 
-            if (
-                anchor is not None
-                and nearby_days >= 0
-                and (match.entry_type is EntryType.PROJECT_UPDATE or match.entry_date is not None)
+            if depth < link_depth:
+                for match in selected:
+                    next_candidates, next_diagnostics = self._candidates(match)
+                    diagnostics.extend(next_diagnostics)
+                    queue.extend((next_candidate, depth + 1) for next_candidate in next_candidates)
+
+            if anchor is not None and any(
+                match.entry_type is EntryType.PROJECT_UPDATE or match.entry_date is not None
+                for match in selected
             ):
-                for history in self._nearby_history(candidate.note_id, anchor, nearby_days):
+                for history in self._nearby_history(candidate.note_id, anchor, nearby_days, anchor_end):
                     if history.entry_id in seen_items:
                         continue
                     if len(items) >= max_items:
@@ -117,14 +170,6 @@ class ContextExpander:
                     )
                     seen_items.add(history.entry_id)
 
-            if depth < link_depth:
-                next_candidates, next_diagnostics = self._candidates(match)
-                diagnostics.extend(next_diagnostics)
-                queue.extend((next_candidate, depth + 1) for next_candidate in next_candidates)
-
-        if any(candidate.note_id not in visited and depth <= link_depth for candidate, depth in queue):
-            reasons.add("max_items" if len(items) >= max_items else "max_notes")
-
         return ContextExpansion(
             source_entry_id=entry_id,
             items=tuple(items),
@@ -132,18 +177,17 @@ class ContextExpander:
             inspected_note_ids=tuple(inspected),
             truncated=bool(reasons),
             budget_reasons=tuple(sorted(reasons)),
+            section_continuations=tuple(dict.fromkeys(continuations)),
         )
 
     def _candidates(self, result: SearchResult) -> tuple[tuple[_Candidate, ...], list[TraversalDiagnostic]]:
-        counts: defaultdict[tuple[str, ContextLabel], int] = defaultdict(int)
-        sections: dict[tuple[str, ContextLabel], str | None] = {}
+        counts: defaultdict[tuple[str, ContextLabel, str | None], int] = defaultdict(int)
         diagnostics: list[TraversalDiagnostic] = []
         outgoing_ids: set[str] = set()
         for link in result.outgoing_links:
             if link.resolution is LinkResolution.RESOLVED and link.target_note_id is not None:
-                key = (link.target_note_id, ContextLabel.FOLLOWED_LINK)
+                key = (link.target_note_id, ContextLabel.FOLLOWED_LINK, link.target_heading)
                 counts[key] += 1
-                sections.setdefault(key, link.target_heading)
                 outgoing_ids.add(link.target_note_id)
             else:
                 diagnostics.append(
@@ -164,7 +208,7 @@ class ContextExpander:
                 if link.resolution is LinkResolution.RESOLVED and link.target_note_id == result.note_id
             )
             if references:
-                counts[(backlink.note_id, ContextLabel.BACKLINK)] += references
+                counts[(backlink.note_id, ContextLabel.BACKLINK, None)] += references
 
         candidates = [
             _Candidate(
@@ -172,22 +216,25 @@ class ContextExpander:
                 label,
                 result.note_id,
                 references,
-                sections.get((note_id, label)),
+                section,
             )
-            for (note_id, label), references in counts.items()
+            for (note_id, label, section), references in counts.items()
         ]
         candidates.sort(
             key=lambda candidate: (
                 0 if candidate.label is ContextLabel.FOLLOWED_LINK else 1,
                 -candidate.references,
                 candidate.note_id,
+                candidate.section or "",
             )
         )
         return tuple(candidates), diagnostics
 
-    def _nearby_history(self, note_id: str, anchor: date, nearby_days: int) -> tuple[SearchResult, ...]:
+    def _nearby_history(
+        self, note_id: str, anchor: date, nearby_days: int, anchor_end: date | None = None
+    ) -> tuple[SearchResult, ...]:
         start = (anchor - timedelta(days=nearby_days)).isoformat()
-        end = (anchor + timedelta(days=nearby_days)).isoformat()
+        end = ((anchor_end or anchor) + timedelta(days=nearby_days)).isoformat()
         results = self.retriever.metadata_all(
             QueryPlan(
                 mode=RetrievalMode.METADATA,
@@ -216,4 +263,9 @@ def _evidence_date(result: SearchResult) -> date | None:
 
 def _distance(result: SearchResult, anchor: date) -> int:
     value = _evidence_date(result)
-    return abs((value - anchor).days) if value is not None else 10**9
+    if value is None:
+        return 10**9
+    end = date.fromisoformat(result.entry_date_end) if result.entry_date_end else value
+    if value <= anchor <= end:
+        return 0
+    return min(abs((value - anchor).days), abs((end - anchor).days))

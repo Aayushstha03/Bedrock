@@ -38,6 +38,7 @@ class Heading:
     content_end: int
     path: tuple[str, ...]
     active_date: str | None
+    active_date_end: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +86,19 @@ def valid_iso_date(value: str) -> str | None:
     return value
 
 
+def heading_dates(value: str) -> tuple[str | None, str | None]:
+    """An exact date or inclusive ISO interval; prose never establishes dates."""
+    single = valid_iso_date(value)
+    if single:
+        return single, None
+    parts = value.split(" to ")
+    if len(parts) == 2:
+        start, end = (valid_iso_date(part) for part in parts)
+        if start and end and start <= end:
+            return start, end
+    return None, None
+
+
 def headings(tokens: list[Token], total_lines: int) -> tuple[Heading, ...]:
     raw: list[tuple[int, int, str]] = []
     for index, token in enumerate(tokens):
@@ -94,16 +108,17 @@ def headings(tokens: list[Token], total_lines: int) -> tuple[Heading, ...]:
         raw.append((int(token.tag[1:]), token.map[0], inline.content.strip()))
 
     result: list[Heading] = []
-    stack: list[tuple[int, str, str | None]] = []
+    stack: list[tuple[int, str, str | None, str | None]] = []
     for index, (level, line, text) in enumerate(raw):
         while stack and stack[-1][0] >= level:
             stack.pop()
-        own_date = valid_iso_date(text)
-        inherited_date = next((item[2] for item in reversed(stack) if item[2]), None)
+        own_date, own_end = heading_dates(text)
+        inherited = next(((item[2], item[3]) for item in reversed(stack) if item[2]), (None, None))
+        active_date, active_end = (own_date, own_end) if own_date else inherited
         path = (*(item[1] for item in stack), text)
         next_line = raw[index + 1][1] if index + 1 < len(raw) else total_lines
-        result.append(Heading(level, text, line + 1, line + 1, next_line, path, own_date or inherited_date))
-        stack.append((level, text, own_date or inherited_date))
+        result.append(Heading(level, text, line + 1, line + 1, next_line, path, active_date, active_end))
+        stack.append((level, text, active_date, active_end))
     return tuple(result)
 
 

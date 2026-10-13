@@ -251,6 +251,7 @@ def _result(
         end_line=payload["end_line"],
         note_date=_short_date(payload["note_date"]),
         entry_date=_short_date(payload["entry_date"]),
+        entry_date_end=_short_date(payload.get("entry_date_end")),
         tags=tuple(payload["tags"]),
         outgoing_links=tuple(_link(link) for link in payload["outgoing_links"]),
         score=score,

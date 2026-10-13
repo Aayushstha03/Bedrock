@@ -147,6 +147,7 @@ class ParsedEntry:
     web_links: tuple[str, ...] = ()
     content_hash: str = ""
     board: KanbanData | None = None
+    entry_date_end: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +258,7 @@ class QdrantPayload:
     # can be found with a query instead of a full-vault parse.
     outgoing_link_keys: tuple[str, ...] = ()
     board: KanbanData | None = None
+    entry_date_end: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))
@@ -283,6 +285,7 @@ class SearchResult:
     score: float | None = None
     verified: bool | None = None
     board: KanbanData | None = None
+    entry_date_end: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))
@@ -341,6 +344,16 @@ class TraversalDiagnostic:
 
 
 @dataclass(frozen=True, slots=True)
+class SectionContinuation:
+    """Read omitted section content with read_note, starting at start_line."""
+
+    note_id: str
+    section: str
+    start_line: int
+    end_line: int
+
+
+@dataclass(frozen=True, slots=True)
 class ContextExpansion:
     source_entry_id: str
     items: tuple[ContextItem, ...]
@@ -348,6 +361,7 @@ class ContextExpansion:
     inspected_note_ids: tuple[str, ...] = ()
     truncated: bool = False
     budget_reasons: tuple[str, ...] = ()
+    section_continuations: tuple[SectionContinuation, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))

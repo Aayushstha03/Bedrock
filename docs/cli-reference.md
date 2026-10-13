@@ -76,7 +76,9 @@ Important fields:
   `freeform_chunk`, or `kanban_card`.
 - `score`: populated by lexical, semantic, and hybrid retrieval.
 - `verified`: `true` for a literally verified result; otherwise `null`.
-- `note_date` and `entry_date` remain distinct.
+- `note_date` and `entry_date` remain distinct. Optional `entry_date_end`
+  records the inclusive end of a compacted project-log interval. Date filters
+  include intervals overlapping the requested dates.
 - Dates are returned as plain calendar dates. The stored Qdrant payload
   holds them as UTC datetimes, so a raw payload reads
   `2026-08-19T00:00:00Z` where this object reads `2026-08-19`.
