@@ -4,8 +4,8 @@ from threading import Lock, Thread
 
 from watchdog.events import FileCreatedEvent, FileMovedEvent, FileOpenedEvent
 
-from zenith.core.config import Settings
-from zenith.parser.watcher import MarkdownChangeHandler
+from bedrock.core.config import Settings
+from bedrock.parser.watcher import MarkdownChangeHandler
 
 
 def settings(vault: Path) -> Settings:

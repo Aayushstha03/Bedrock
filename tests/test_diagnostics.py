@@ -3,9 +3,9 @@ from types import SimpleNamespace
 
 from qdrant_client import models
 
-from zenith.core.config import Settings
-from zenith.index.diagnostics import inspect_collection
-from zenith.index.schema import PAYLOAD_INDEXES
+from bedrock.core.config import Settings
+from bedrock.index.diagnostics import inspect_collection
+from bedrock.index.schema import PAYLOAD_INDEXES
 
 
 def settings(tmp_path: Path) -> Settings:

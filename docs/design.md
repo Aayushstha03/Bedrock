@@ -1,6 +1,6 @@
-# How Zenith works
+# How Bedrock works
 
-The single source of truth for what Zenith is and why it is built this way.
+The single source of truth for what Bedrock is and why it is built this way.
 Command syntax, flags, and response shapes live in
 [cli-reference.md](cli-reference.md).
 
@@ -14,7 +14,7 @@ One Docker Compose project runs everything:
 
 | Service | Role |
 | --- | --- |
-| `zenith` | Parse, index, embed, query, answer. Runs the health service. |
+| `bedrock` | Parse, index, embed, query, answer. Runs the health service. |
 | `watch` | Watchdog watcher. Indexes each debounced change batch. |
 | `mcp` | Read-only, agent-independent vault tools over MCP. |
 | `qdrant` | All derived storage and retrieval. Dashboard on `127.0.0.1:6333`. |
@@ -129,11 +129,11 @@ offline.
 
 ## 5. Two write modes
 
-**Rebuild** — `zenith index rebuild`. Writes into a new collection, validates
+**Rebuild** — `bedrock index rebuild`. Writes into a new collection, validates
 it, then moves the alias. It is atomic. A failure never touches the live index,
 and its incomplete collection is removed.
 
-**Incremental** — `zenith index update`, and the watcher. Writes into the live
+**Incremental** — `bedrock index update`, and the watcher. Writes into the live
 collection. It compares the entries just parsed against the points already
 stored:
 
@@ -228,7 +228,7 @@ through proximity, and a link never transfers its date to its target.
 
 ### Kanban card dates
 
-Cards carry dates like any other entry. Zenith reads the Obsidian Kanban date
+Cards carry dates like any other entry. Bedrock reads the Obsidian Kanban date
 annotation from the card text and stores it as the card's `entry_date`, so a
 date query returns cards next to daily sections and project updates:
 
@@ -238,7 +238,7 @@ date query returns cards next to daily sections and project updates:
 - [ ] Dated by daily-note link @[[2026-08-20]]
 ```
 
-Zenith records the date only. It does not decide whether a date means due,
+Bedrock records the date only. It does not decide whether a date means due,
 scheduled, or done, because the plugin does not record that either. Every card
 payload carries `board.checked` and `board.status`, so a caller reads that
 meaning from the board's own state.
@@ -256,7 +256,7 @@ read as a date, not as a link to a note named `2026-08-20`.
 ## 8. Entry size and the encoder window
 
 The pinned dense model accepts 256 input tokens and truncates the rest without
-reporting it. Zenith therefore splits any section, preamble, or headless note
+reporting it. Bedrock therefore splits any section, preamble, or headless note
 that would overrun the window into several entries, cutting only on paragraph
 boundaries. Each piece keeps the heading, heading path, entry type, and entry
 date of the section it came from, so chronology and evidence stay intact.
@@ -264,7 +264,7 @@ date of the section it came from, so chronology and evidence stay intact.
 The window is 256 because that is the `max_seq_length` all-MiniLM-L6-v2
 declares for itself. FastEmbed would otherwise run it at 128, half the length
 the model was fine-tuned for. `LocalEncoders` pins the real tokenizer to
-`ZENITH_DENSE_TOKEN_WINDOW`, so the parser's budget and the encoder's actual
+`BEDROCK_DENSE_TOKEN_WINDOW`, so the parser's budget and the encoder's actual
 limit cannot drift apart. `Settings.validate` rejects any window above 512,
 because past that this model's positional embeddings are untrained. A different
 model carries a different ceiling, so that guard moves with the model.
@@ -303,12 +303,12 @@ the current workaround is a source read.
 
 ## 9. Legacy answering layer
 
-Zenith Vault v1 exposes its agent-independent tool contract through MCP; see
+Bedrock v1 exposes its agent-independent tool contract through MCP; see
 [mcp.md](mcp.md). It returns canonical identities and source metadata, leaving
 citation presentation to the consuming application. The following answering
 layer remains for migration to the separate Zenith application.
 
-`zenith ask` puts a model in front of the index. The model does not compile a
+`bedrock ask` puts a model in front of the index. The model does not compile a
 query plan; it calls tools, and the trace of what it called is part of the
 result.
 
@@ -335,13 +335,13 @@ line range. Ids count from `s1` per question and mean nothing outside the
 answer built from them. One entry reached twice keeps one id. Multiple sources
 use adjacent ids, `[s2][s5]`; `[s2, s5]` is invalid. A whole note read through
 `read_note` gets an id with no line range, because there is no one range to
-claim. An id the run never issued resolves to `{"unknown": true}`. Zenith
+claim. An id the run never issued resolves to `{"unknown": true}`. Bedrock
 validates citation syntax after every answer. It makes one correction pass
 within the original request and tool-call budget; an answer that still fails is
 returned visibly marked with `citation_valid: false` and `citation_errors`.
 
 The model is served by LM Studio on the host over its OpenAI-compatible API,
-configured through the `ZENITH_LLM_*` variables. Enable "Serve on Local
+configured through the `BEDROCK_LLM_*` variables. Enable "Serve on Local
 Network" in LM Studio so the container can reach it, and start its server.
 
 Temperature is 0.0 by default and is sent on every request, so a preset held by
@@ -360,7 +360,7 @@ Studio holds a chat model in VRAM. Parsing, indexing, and the watcher must keep
 running while it is closed, so they must never compete for that VRAM and must
 never depend on a desktop application. This is why embedding runs in-process on
 CPU through FastEmbed, and why serving embeddings from LM Studio or any other
-external inference server is rejected. `zenith health` reports LM Studio but
+external inference server is rejected. `bedrock health` reports LM Studio but
 never fails because of it, and the container liveness probe at `/healthz` does
 not contact it at all.
 

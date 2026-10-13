@@ -1,4 +1,4 @@
-# Zenith Vault
+# Bedrock
 
 *Work in progress. I am building it as I go, and it is just getting started.*
 
@@ -15,13 +15,13 @@ well when I write them. They work badly when I must find them again. The
 information is in the vault, but it takes a long time to open each file, read
 each heading, and remember which day held the answer.
 
-Zenith Vault is the tool for that second part. It makes the lookup fast, simple, and
-one step. I ask a question in the words I remember, and Zenith Vault gives me the
+Bedrock is the tool for that second part. It makes the lookup fast, simple, and
+one step. I ask a question in the words I remember, and Bedrock gives me the
 entries I wrote.
 
 It is also one tool for all of it. My journals, my Kanban boards, my project
 updates, and my freeform logs are different shapes of Markdown, but they hold
-one history. Zenith Vault reads all of them, indexes each entry the same way, and
+one history. Bedrock reads all of them, indexes each entry the same way, and
 searches them together.
 
 ## What it is
@@ -30,7 +30,7 @@ A local-first search index for a Markdown vault. The Markdown stays the source
 of truth and is mounted read-only. Qdrant holds the derived index and nothing
 else, so the whole index can be thrown away and rebuilt from the notes.
 
-Zenith Vault cuts notes into entries — daily sections, dated project updates,
+Bedrock cuts notes into entries — daily sections, dated project updates,
 freeform sections, and Kanban cards — and indexes each one with a dense vector,
 a BM25 sparse vector, and a payload carrying its path, heading path, dates, and
 line range. Search it by metadata, exact phrase, keyword, meaning, or a hybrid
@@ -41,7 +41,7 @@ MCP-compatible agent can search and read the vault. The indexer and watcher need
 ## Start it
 
 ```bash
-cp .env.example .env          # then set ZENITH_VAULT_PATH to your vault
+cp .env.example .env          # then set BEDROCK_VAULT_PATH to your vault
 docker compose build
 docker compose run --rm model-prefetch
 docker compose up -d
@@ -53,8 +53,8 @@ The default vault path points at the fixture vault, which is safe to index as-is
 Build the index, then search it:
 
 ```bash
-docker compose exec zenith zenith index rebuild
-docker compose exec zenith zenith search "pipeline clustering" --mode hybrid
+docker compose exec bedrock bedrock index rebuild
+docker compose exec bedrock bedrock search "pipeline clustering" --mode hybrid
 ```
 
 The watcher runs as its own service and reindexes each saved file, so the index
@@ -64,7 +64,7 @@ The MCP endpoint is **http://127.0.0.1:8000/mcp** (Streamable HTTP).
 See [docs/mcp.md](docs/mcp.md) for client configuration, the eight tools, and
 complete note reading. Citation presentation belongs to the consuming agent.
 
-The legacy `zenith ask` command needs LM Studio running on the host with
+The legacy `bedrock ask` command needs LM Studio running on the host with
 "Serve on Local Network" enabled. Nothing else does. Parsing, indexing, and the watcher all run with LM
 Studio closed, so the index never competes with a chat model for VRAM.
 
@@ -73,10 +73,10 @@ The Qdrant dashboard is at <http://localhost:6333/dashboard>.
 ## Vault conventions
 
 - **Kanban boards:** keep all boards under the configured top-level
-  `ZENITH_KANBAN_ROOT` folder (default `kanban`). Classification uses the folder,
+  `BEDROCK_KANBAN_ROOT` folder (default `kanban`). Classification uses the folder,
   not the `kanban-plugin: board` property. Boards elsewhere are treated as
   ordinary notes; keep ordinary notes out of the board folder.
-- **Tags and properties:** tag filters use the curated `ZENITH_KNOWN_TAGS` set
+- **Tags and properties:** tag filters use the curated `BEDROCK_KNOWN_TAGS` set
   and configured aliases from inline prose tags. Frontmatter tags and arbitrary
   properties are not search filters. Store meaningful information in the body.
 - **Dates:** use exact `YYYY-MM-DD` filenames for daily notes. Inside the
@@ -112,11 +112,27 @@ After upgrading to date-range support, rebuild the existing index to create
 the new date-end payload index and refresh searchable entries:
 
 ```bash
-docker compose restart zenith watch mcp
-docker compose exec zenith zenith index rebuild
+docker compose restart bedrock watch mcp
+docker compose exec bedrock bedrock index rebuild
 ```
 
 ## Working on it
+
+### Project rename
+
+Bedrock uses the `bedrock` package/CLI, `BEDROCK_*` settings, and the `bedrock`
+Compose project and application service. Earlier names are not supported.
+The local `.env` must use the new setting names. Deterministic IDs also use the
+Bedrock namespace; clients should discover new IDs after rebuilding the index.
+
+Stop the previous Compose deployment before starting Bedrock to release its
+ports. The renamed Compose project creates new Qdrant/model-cache volumes;
+previous volumes are retained, but are not automatically reused. Follow the
+startup instructions to build the image, prefetch models, and rebuild the index.
+An existing HTTP MCP client can keep its endpoint when the configured port is
+unchanged; stdio clients must use the `bedrock` command and updated repo path.
+
+### Development
 
 ```bash
 uv sync --dev
@@ -129,15 +145,15 @@ the containers run the working tree. Edit a file and the next
 processes hold their own code:
 
 ```bash
-docker compose restart zenith watch mcp
+docker compose restart bedrock watch mcp
 ```
 
 Rebuild the image only when a dependency changes.
 
 ## Documentation
 
-- [docs/mcp.md](docs/mcp.md) — the Zenith Vault v1 tool contract and MCP setup.
-- [docs/design.md](docs/design.md) — how Zenith works, and why. The decisions,
+- [docs/mcp.md](docs/mcp.md) — the Bedrock v1 tool contract and MCP setup.
+- [docs/design.md](docs/design.md) — how Bedrock works, and why. The decisions,
   the indexing pipeline, the retrieval modes, the invariants, and the known
   limits.
 - [docs/cli-reference.md](docs/cli-reference.md) — every command, option,

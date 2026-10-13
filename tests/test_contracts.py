@@ -1,6 +1,6 @@
 import pytest
 
-from zenith.core.contracts import (
+from bedrock.core.contracts import (
     EntryType,
     Link,
     LinkResolution,

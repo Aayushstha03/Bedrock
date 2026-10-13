@@ -1,6 +1,6 @@
-# Zenith Vault MCP v1
+# Bedrock MCP v1
 
-Zenith Vault watches a Markdown vault, maintains its derived Qdrant index, and
+Bedrock watches a Markdown vault, maintains its derived Qdrant index, and
 exposes read-only tools to MCP-compatible clients. It does not need a chat model
 or LM Studio. The watcher and MCP server run as separate Compose services.
 
@@ -12,7 +12,7 @@ docker compose up -d
 ```
 
 Connect your MCP client to `http://127.0.0.1:8000/mcp` using Streamable HTTP.
-The port defaults to 8000 and is published on loopback. Set `ZENITH_MCP_PORT`
+The port defaults to 8000 and is published on loopback. Set `BEDROCK_MCP_PORT`
 to change it. This v1 endpoint has no authentication and is intended for local
 clients. Host/Origin validation permits localhost, 127.0.0.1, and the internal
 Compose hostname `mcp`; arbitrary hostnames are rejected.
@@ -26,10 +26,10 @@ Clients that launch an MCP process can use:
 ```json
 {
   "mcpServers": {
-    "zenith-vault": {
+    "bedrock": {
       "command": "docker",
-      "args": ["compose", "-f", "/absolute/path/to/zenith-vault/compose.yaml",
-               "exec", "-T", "mcp", "zenith", "mcp"]
+      "args": ["compose", "-f", "/absolute/path/to/bedrock/compose.yaml",
+               "exec", "-T", "mcp", "bedrock", "mcp"]
     }
   }
 }
@@ -39,9 +39,9 @@ Build/start the `mcp` service after installing the new dependency. `-T` is
 required: MCP messages use stdin/stdout, without a pseudo-terminal. Logs go to
 stderr. The Compose watcher must remain running to keep the index updated.
 
-Without Docker, run `uv run zenith-vault mcp` with the existing `ZENITH_*`
-configuration variables and run `uv run zenith-vault watch` separately.
-`zenith mcp --transport streamable-http --port 8000` serves HTTP directly.
+Without Docker, run `uv run bedrock mcp` with the existing `BEDROCK_*`
+configuration variables and run `uv run bedrock watch` separately.
+`bedrock mcp --transport streamable-http --port 8000` serves HTTP directly.
 
 ## Tools
 
@@ -50,9 +50,9 @@ each tool's workflow, constraints, and follow-up guidance in its description.
 Descriptions cover search-mode selection, evidence verification, source reads,
 pagination, date intervals, Kanban states, and context continuations. Clients
 should make server instructions and relevant tool descriptions available to the
-model. These describe Zenith's capabilities; the host retains control over its
+model. These describe Bedrock's capabilities; the host retains control over its
 general answering behavior, permissions, and citation presentation. No separate
-Zenith-specific agent prompt or MCP prompt template is required to discover the
+Bedrock-specific agent prompt or MCP prompt template is required to discover the
 tool workflow. Client handling of initialization instructions can vary, so key
 rules also appear in individual tool descriptions.
 
@@ -136,7 +136,7 @@ watcher liveness. Index rebuild/update remain administrative CLI commands.
 
 ## Compatibility
 
-The existing `zenith` CLI and `ask` layer remain available for migration. The
+The existing `bedrock` CLI and `ask` layer remain available for migration. The
 new MCP service neither imports the answering agent nor calls an inference
 server. Citation management and the future GUI/voice interface belong in the
 separate Zenith application. No file editing tools are exposed in v1.
@@ -162,5 +162,5 @@ network defaults to `odysseus_default`; change the override's network name if
 your Odysseus project uses a different one. Use both Compose files whenever
 recreating this service to preserve the network connection.
 
-Existing indexes require `zenith index rebuild` when upgrading to date-range
+Existing indexes require `bedrock index rebuild` when upgrading to date-range
 support, because `entry_date_end` adds a required payload index.

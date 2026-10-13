@@ -2,17 +2,17 @@ from pathlib import Path
 
 import pytest
 
-from zenith.core.config import Settings
+from bedrock.core.config import Settings
 
 
 def test_settings_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ZENITH_QDRANT_URL", "http://localhost:6333/")
-    monkeypatch.setenv("ZENITH_VAULT_PATH", "/tmp/vault")
-    monkeypatch.setenv("ZENITH_MODEL_CACHE_PATH", "/tmp/models")
-    monkeypatch.setenv("ZENITH_COLLECTION", "test_entries")
-    monkeypatch.setenv("ZENITH_DENSE_MODEL", "dense/test")
-    monkeypatch.setenv("ZENITH_SPARSE_MODEL", "sparse/test")
-    monkeypatch.setenv("ZENITH_PORT", "9090")
+    monkeypatch.setenv("BEDROCK_QDRANT_URL", "http://localhost:6333/")
+    monkeypatch.setenv("BEDROCK_VAULT_PATH", "/tmp/vault")
+    monkeypatch.setenv("BEDROCK_MODEL_CACHE_PATH", "/tmp/models")
+    monkeypatch.setenv("BEDROCK_COLLECTION", "test_entries")
+    monkeypatch.setenv("BEDROCK_DENSE_MODEL", "dense/test")
+    monkeypatch.setenv("BEDROCK_SPARSE_MODEL", "sparse/test")
+    monkeypatch.setenv("BEDROCK_PORT", "9090")
 
     settings = Settings.from_env()
 
@@ -27,7 +27,7 @@ def test_settings_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_settings_reject_invalid_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ZENITH_PORT", "0")
+    monkeypatch.setenv("BEDROCK_PORT", "0")
     with pytest.raises(ValueError, match="positive"):
         Settings.from_env()
 
@@ -52,7 +52,7 @@ def test_tag_aliases_must_target_known_tags(tmp_path: Path) -> None:
 
 
 def test_dense_token_window_defaults_to_the_model_declared_length() -> None:
-    from zenith.core.config import DENSE_TOKEN_WINDOW
+    from bedrock.core.config import DENSE_TOKEN_WINDOW
 
     # all-MiniLM-L6-v2 declares max_seq_length 256 in sentence_bert_config.json.
     # FastEmbed's own default of 128 is half of that.
@@ -86,32 +86,32 @@ def test_a_tiny_token_window_is_rejected(tmp_path: Path) -> None:
 
 
 def test_llm_settings_default_to_lm_studio_on_the_host(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ZENITH_LLM_BASE_URL", raising=False)
-    monkeypatch.delenv("ZENITH_LLM_MODEL", raising=False)
+    monkeypatch.delenv("BEDROCK_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("BEDROCK_LLM_MODEL", raising=False)
     settings = Settings.from_env()
     assert settings.llm_base_url == "http://host.docker.internal:1234/v1"
     assert settings.llm_model == "google/gemma-4-e4b"
     assert settings.validate() == ()
 
     assert settings.llm_timeout == 120.0
-    monkeypatch.setenv("ZENITH_LLM_TIMEOUT", "0")
+    monkeypatch.setenv("BEDROCK_LLM_TIMEOUT", "0")
     with pytest.raises(ValueError, match="positive"):
         Settings.from_env()
-    monkeypatch.delenv("ZENITH_LLM_TIMEOUT")
+    monkeypatch.delenv("BEDROCK_LLM_TIMEOUT")
 
     assert settings.llm_temperature == 0.0
-    monkeypatch.setenv("ZENITH_LLM_TEMPERATURE", "0.7")
+    monkeypatch.setenv("BEDROCK_LLM_TEMPERATURE", "0.7")
     assert Settings.from_env().llm_temperature == 0.7
     # Zero is the useful default, not a mistake, so the bound is a range.
-    monkeypatch.setenv("ZENITH_LLM_TEMPERATURE", "0")
+    monkeypatch.setenv("BEDROCK_LLM_TEMPERATURE", "0")
     assert Settings.from_env().llm_temperature == 0.0
     for rejected in ("-0.1", "2.1"):
-        monkeypatch.setenv("ZENITH_LLM_TEMPERATURE", rejected)
+        monkeypatch.setenv("BEDROCK_LLM_TEMPERATURE", rejected)
         with pytest.raises(ValueError, match=r"between 0\.0 and 2\.0"):
             Settings.from_env()
-    monkeypatch.delenv("ZENITH_LLM_TEMPERATURE")
+    monkeypatch.delenv("BEDROCK_LLM_TEMPERATURE")
 
-    monkeypatch.setenv("ZENITH_LLM_BASE_URL", "http://127.0.0.1:1234/v1/")
+    monkeypatch.setenv("BEDROCK_LLM_BASE_URL", "http://127.0.0.1:1234/v1/")
     assert Settings.from_env().llm_base_url == "http://127.0.0.1:1234/v1"
 
 
@@ -127,20 +127,20 @@ def test_llm_settings_reject_a_non_http_base_url(tmp_path: Path) -> None:
         llm_model="",
     )
     errors = settings.validate()
-    assert "ZENITH_LLM_BASE_URL must use http or https" in errors
-    assert "ZENITH_LLM_MODEL cannot be empty" in errors
+    assert "BEDROCK_LLM_BASE_URL must use http or https" in errors
+    assert "BEDROCK_LLM_MODEL cannot be empty" in errors
 
 
 def test_an_empty_environment_value_means_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """Compose substitutes an empty string for a key an older `.env` lacks.
 
-    Refusing it would stop `zenith serve`, and with it the `health` command an
+    Refusing it would stop `bedrock serve`, and with it the `health` command an
     operator would run to find out why the container restarts.
     """
-    monkeypatch.setenv("ZENITH_LLM_TIMEOUT", "")
-    monkeypatch.setenv("ZENITH_LLM_TEMPERATURE", "")
-    monkeypatch.setenv("ZENITH_DENSE_TOKEN_WINDOW", "")
-    monkeypatch.setenv("ZENITH_PORT", "")
+    monkeypatch.setenv("BEDROCK_LLM_TIMEOUT", "")
+    monkeypatch.setenv("BEDROCK_LLM_TEMPERATURE", "")
+    monkeypatch.setenv("BEDROCK_DENSE_TOKEN_WINDOW", "")
+    monkeypatch.setenv("BEDROCK_PORT", "")
     settings = Settings.from_env()
     assert settings.llm_timeout == 120.0
     assert settings.llm_temperature == 0.0
@@ -148,6 +148,6 @@ def test_an_empty_environment_value_means_unset(monkeypatch: pytest.MonkeyPatch)
     assert settings.port == 8080
 
     # A value that is present and wrong is still rejected.
-    monkeypatch.setenv("ZENITH_LLM_TIMEOUT", "not-a-number")
+    monkeypatch.setenv("BEDROCK_LLM_TIMEOUT", "not-a-number")
     with pytest.raises(ValueError, match="must be a number"):
         Settings.from_env()

@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from zenith.core.config import Settings
-from zenith.core.contracts import LinkResolution, WarningType
-from zenith.index.links import resolve_link, resolve_links
-from zenith.parser.service import VaultParser
+from bedrock.core.config import Settings
+from bedrock.core.contracts import LinkResolution, WarningType
+from bedrock.index.links import resolve_link, resolve_links
+from bedrock.parser.service import VaultParser
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 

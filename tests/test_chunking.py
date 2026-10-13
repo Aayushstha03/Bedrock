@@ -1,5 +1,5 @@
-from zenith.parser.chunking import Chunk, pack, paragraphs
-from zenith.parser.tokens import (
+from bedrock.parser.chunking import Chunk, pack, paragraphs
+from bedrock.parser.tokens import (
     DEFAULT_TOKEN_WINDOW,
     MINIMUM_CONTENT_TOKENS,
     content_budget,

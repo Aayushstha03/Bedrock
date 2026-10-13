@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from zenith.core.config import Settings
-from zenith.core.contracts import GraphEdgeType
-from zenith.index.graph import GraphExporter
+from bedrock.core.config import Settings
+from bedrock.core.contracts import GraphEdgeType
+from bedrock.index.graph import GraphExporter
 
 
 class GraphClient:

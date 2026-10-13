@@ -1,16 +1,16 @@
-# Zenith CLI and Library Reference
+# Bedrock CLI and Library Reference
 
-Zenith commands run inside the application container. Examples in this document
+Bedrock commands run inside the application container. Examples in this document
 use the complete invocation:
 
 ```bash
-docker compose exec zenith zenith COMMAND
+docker compose exec bedrock bedrock COMMAND
 ```
 
 The container runs the working tree, which `compose.yaml` binds at `/app/src`,
-so a command reflects an edit without a rebuild. `zenith serve` and
-`zenith watch` and `zenith mcp` are already running and keep their own code
-until `docker compose restart zenith watch mcp`.
+so a command reflects an edit without a rebuild. `bedrock serve` and
+`bedrock watch` and `bedrock mcp` are already running and keep their own code
+until `docker compose restart bedrock watch mcp`.
 
 All normal command results are deterministic, pretty-printed JSON. Property
 names are sorted so unchanged commands are easy to diff.
@@ -34,7 +34,7 @@ Invalid operations write a JSON error to stderr:
 }
 ```
 
-`zenith serve` is a long-running HTTP service and `zenith watch` is a
+`bedrock serve` is a long-running HTTP service and `bedrock watch` is a
 long-running event stream. Help text from `--help` is intentionally human-readable
 rather than JSON.
 
@@ -121,19 +121,19 @@ have a `null` status.
 ### `mcp`
 
 ```bash
-docker compose exec -T zenith zenith mcp
+docker compose exec -T bedrock bedrock mcp
 # Or the Compose mcp service at http://127.0.0.1:8000/mcp
 ```
 
-Runs the read-only Zenith Vault MCP server. Defaults to stdio; use
+Runs the read-only Bedrock MCP server. Defaults to stdio; use
 `--transport streamable-http`, `--host`, and `--port` for HTTP.
-`zenith-vault` is an alias for the existing CLI. See [mcp.md](mcp.md) for the
-version-one tool contracts, client setup, pagination, and availability behavior.
+See [mcp.md](mcp.md) for the version-one tool contracts, client setup,
+pagination, and availability behavior.
 
 ### `serve`
 
 ```bash
-docker compose exec zenith zenith serve
+docker compose exec bedrock bedrock serve
 ```
 
 Starts the long-running health server. Compose already uses this as the
@@ -147,7 +147,7 @@ application container's default process.
 ### `health`
 
 ```bash
-docker compose exec zenith zenith health
+docker compose exec bedrock bedrock health
 ```
 
 Checks configuration, Qdrant connectivity, active-index compatibility, pinned
@@ -173,9 +173,9 @@ budget waiting for one.
     "required": false
   },
   "index": {
-    "collection": "zenith_entries",
+    "collection": "bedrock_entries",
     "errors": [],
-    "physical_collection": "zenith_entries__build_...",
+    "physical_collection": "bedrock_entries__build_...",
     "points": 38,
     "ready": true
   },
@@ -189,7 +189,7 @@ budget waiting for one.
 ### `diagnose`
 
 ```bash
-docker compose exec zenith zenith diagnose
+docker compose exec bedrock bedrock diagnose
 ```
 
 Returns both the complete health report and focused index inspection:
@@ -204,8 +204,8 @@ Returns both the complete health report and focused index inspection:
 ### `parse [PATH ...]`
 
 ```bash
-docker compose exec zenith zenith parse
-docker compose exec zenith zenith parse logs/2026-08-20.md
+docker compose exec bedrock bedrock parse
+docker compose exec bedrock bedrock parse logs/2026-08-20.md
 ```
 
 Parses all Markdown or only the supplied vault-relative paths without changing
@@ -234,7 +234,7 @@ operations and warning inspection.
 ### `watch`
 
 ```bash
-docker compose exec zenith zenith watch
+docker compose exec bedrock bedrock watch
 ```
 
 Watches recursive Markdown changes and incrementally indexes each debounced
@@ -247,7 +247,7 @@ path batch. It emits one incremental report per batch and runs until interrupted
 ```bash
 docker compose run --rm model-prefetch
 # Equivalent application command:
-docker compose exec zenith zenith models prefetch
+docker compose exec bedrock bedrock models prefetch
 ```
 
 Downloads and validates the pinned dense and sparse models, then writes the
@@ -256,7 +256,7 @@ versioned readiness marker to the persistent model cache.
 ### `models ready`
 
 ```bash
-docker compose exec zenith zenith models ready
+docker compose exec bedrock bedrock models ready
 ```
 
 Reports whether the cache matches the configured models and whether dense
@@ -265,7 +265,7 @@ vectors have 384 dimensions.
 ### `index init`
 
 ```bash
-docker compose exec zenith zenith index init
+docker compose exec bedrock bedrock index init
 ```
 
 Creates an empty schema-compatible physical collection and active alias only
@@ -273,16 +273,16 @@ when no active alias exists. It is idempotent and does not parse or index notes.
 
 ```json
 {
-  "collection": "zenith_entries",
+  "collection": "bedrock_entries",
   "created": false,
-  "physical_collection": "zenith_entries__build_..."
+  "physical_collection": "bedrock_entries__build_..."
 }
 ```
 
 ### `index rebuild`
 
 ```bash
-docker compose exec zenith zenith index rebuild
+docker compose exec bedrock bedrock index rebuild
 ```
 
 Parses and resolves the entire vault, generates embeddings, validates a new
@@ -290,11 +290,11 @@ physical collection, and atomically switches the active alias.
 
 ```json
 {
-  "collection": "zenith_entries",
+  "collection": "bedrock_entries",
   "notes": 16,
-  "physical_collection": "zenith_entries__build_...",
+  "physical_collection": "bedrock_entries__build_...",
   "points": 38,
-  "previous_collection": "zenith_entries__build_...",
+  "previous_collection": "bedrock_entries__build_...",
   "warnings": 7
 }
 ```
@@ -302,8 +302,8 @@ physical collection, and atomically switches the active alias.
 ### `index update [PATH ...]`
 
 ```bash
-docker compose exec zenith zenith index update
-docker compose exec zenith zenith index update projects/News\ Resolution.md
+docker compose exec bedrock bedrock index update
+docker compose exec bedrock bedrock index update projects/News\ Resolution.md
 ```
 
 Converges the active index incrementally. Optional paths document the triggering
@@ -311,7 +311,7 @@ change batch; global link resolution still ensures the result equals a rebuild.
 
 ```json
 {
-  "collection": "zenith_entries",
+  "collection": "bedrock_entries",
   "requested_paths": [],
   "notes": 16,
   "inserted": 0,
@@ -327,7 +327,7 @@ change batch; global link resolution still ensures the result equals a rebuild.
 ### `index inspect`
 
 ```bash
-docker compose exec zenith zenith index inspect
+docker compose exec bedrock bedrock index inspect
 ```
 
 Validates the alias, dense and sparse vector configuration, payload indexes,
@@ -338,7 +338,7 @@ and indexed payload schema version.
 ### `search [QUERY]`
 
 ```text
-zenith search [QUERY]
+bedrock search [QUERY]
   [--mode metadata|literal|lexical|semantic|hybrid]
   [--date-from YYYY-MM-DD] [--date-to YYYY-MM-DD]
   [--tag-all TAG]... [--tag-any TAG]...
@@ -350,28 +350,28 @@ Examples:
 
 ```bash
 # Exact, case-insensitive, Unicode-normalized phrase verification
-docker compose exec zenith zenith search "fried chicken" --mode literal
+docker compose exec bedrock bedrock search "fried chicken" --mode literal
 
 # BM25 lexical retrieval
-docker compose exec zenith zenith search "pipeline clustering" --mode lexical
+docker compose exec bedrock bedrock search "pipeline clustering" --mode lexical
 
 # MiniLM semantic retrieval
-docker compose exec zenith zenith search "food going bad" --mode semantic
+docker compose exec bedrock bedrock search "food going bad" --mode semantic
 
 # Dense + BM25 retrieval fused with RRF
-docker compose exec zenith zenith search "project status flow" --mode hybrid
+docker compose exec bedrock bedrock search "project status flow" --mode hybrid
 
 # Metadata-only filtering; query text is omitted
-docker compose exec zenith zenith search --mode metadata \
+docker compose exec bedrock bedrock search --mode metadata \
   --date-from 2026-08-17 --date-to 2026-08-20 \
   --tag-any journal --tag-any work --limit 20
 
 # Every repeated --tag-all value is required
-docker compose exec zenith zenith search --mode metadata \
+docker compose exec bedrock bedrock search --mode metadata \
   --tag-all journal --tag-all work
 
 # Constrain retrieval to a note and entry type
-docker compose exec zenith zenith search pipeline --mode lexical \
+docker compose exec bedrock bedrock search pipeline --mode lexical \
   --note "News Resolution" --entry-type project_update
 ```
 
@@ -391,7 +391,7 @@ metadata` is selected. Hard filters apply before vector retrieval.
 ### `search-within NOTE_ID QUERY`
 
 ```bash
-docker compose exec zenith zenith search-within NOTE_ID pipeline \
+docker compose exec bedrock bedrock search-within NOTE_ID pipeline \
   --mode lexical --section 2026-08-19 --limit 3
 ```
 
@@ -403,8 +403,8 @@ optional heading filter. Returns `{"results": [SearchResult, ...]}`.
 ### `note get PATH_OR_TITLE`
 
 ```bash
-docker compose exec zenith zenith note get "News Resolution"
-docker compose exec zenith zenith note get projects/News\ Resolution.md
+docker compose exec bedrock bedrock note get "News Resolution"
+docker compose exec bedrock bedrock note get projects/News\ Resolution.md
 ```
 
 Accepts a vault-relative path, extensionless path, exact note title, or filename
@@ -423,12 +423,12 @@ stem. Ambiguous titles or stems return exit code `2` rather than guessing.
 ### `ask QUESTION`
 
 ```bash
-docker compose exec zenith zenith ask "what did I work on last week?"
-docker compose exec zenith zenith ask "..." --model lfm2.5-8b-a1b
+docker compose exec bedrock bedrock ask "what did I work on last week?"
+docker compose exec bedrock bedrock ask "..." --model lfm2.5-8b-a1b
 ```
 
 Answers a question from the vault. The model reaches the notes only through
-six tools in `zenith.agent`: search, note listing, whole-note read, context
+six tools in `bedrock.agent`: search, note listing, whole-note read, context
 expansion, backlinks, and Kanban cards. It cannot write, and it cannot export
 the graph. Collection tools use bounded `items` / `has_more` / `next_offset`
 pages. Query-less note search browses explicitly dated entries newest-first,
@@ -461,14 +461,14 @@ never issued resolves to `{"unknown": true}`, so an answer citing evidence
 that does not exist does not read like one citing evidence that does.
 
 Each citation is one bracketed id, such as `[s2]`; several sources use
-`[s2][s5]`, not `[s2, s5]`. Zenith checks that cited ids were issued and that
+`[s2][s5]`, not `[s2, s5]`. Bedrock checks that cited ids were issued and that
 answers using evidence contain valid citations. It makes one correction pass
 inside the same request/tool-call budget. The output always includes
 `citation_valid` and `citation_errors`; an exhausted correction returns the
 answer with `citation_valid: false` rather than silently treating it as
 grounded.
 
-`--model` overrides `ZENITH_LLM_MODEL` for one question, which is how to
+`--model` overrides `BEDROCK_LLM_MODEL` for one question, which is how to
 compare two loaded models without editing the environment.
 
 The command checks the index first, then LM Studio, before it builds the agent.
@@ -477,11 +477,11 @@ find nothing, and report that the notes say nothing. An unreachable LM Studio,
 or one serving a different model, also returns exit code `1` and says what to
 fix rather than failing part-way through a run.
 
-One answer waits `ZENITH_LLM_TIMEOUT` seconds, 120 by default. The OpenAI
+One answer waits `BEDROCK_LLM_TIMEOUT` seconds, 120 by default. The OpenAI
 client would otherwise wait 600 seconds and retry twice, which reads as a hung
 command.
 
-`ZENITH_LLM_TEMPERATURE` sets the sampling temperature, 0.0 to 2.0, and 0.0 by
+`BEDROCK_LLM_TEMPERATURE` sets the sampling temperature, 0.0 to 2.0, and 0.0 by
 default. The value goes out with every request, so it decides the sampling
 rather than any preset held by the LM Studio server. Raising it loosens the
 citation and grounding rules the instructions depend on, so raise it only to
@@ -519,7 +519,7 @@ code `1`.
 ### `note read PATH_OR_TITLE`
 
 ```bash
-docker compose exec zenith zenith note read "News Resolution"
+docker compose exec bedrock bedrock note read "News Resolution"
 ```
 
 Returns the complete Markdown file, including frontmatter, code, and URLs.
@@ -543,7 +543,7 @@ model; this command carries the file.
 ### `entry get ENTRY_ID`
 
 ```bash
-docker compose exec zenith zenith entry get ENTRY_ID
+docker compose exec bedrock bedrock entry get ENTRY_ID
 ```
 
 Returns one `SearchResult` object or a JSON `LookupError` with exit code `2`.
@@ -553,8 +553,8 @@ Returns one `SearchResult` object or a JSON `LookupError` with exit code `2`.
 ### `links outgoing NOTE_ID [--entry-id ENTRY_ID]`
 
 ```bash
-docker compose exec zenith zenith links outgoing NOTE_ID
-docker compose exec zenith zenith links outgoing NOTE_ID --entry-id ENTRY_ID
+docker compose exec bedrock bedrock links outgoing NOTE_ID
+docker compose exec bedrock bedrock links outgoing NOTE_ID --entry-id ENTRY_ID
 ```
 
 Returns every outgoing link for the note, or only links from the selected entry:
@@ -566,7 +566,7 @@ Returns every outgoing link for the note, or only links from the selected entry:
 ### `links backlinks NOTE_ID`
 
 ```bash
-docker compose exec zenith zenith links backlinks NOTE_ID
+docker compose exec bedrock bedrock links backlinks NOTE_ID
 ```
 
 Returns entry-level `SearchResult` evidence for every point whose resolved
@@ -575,9 +575,9 @@ outgoing links contain the target note ID.
 ### `links resolve SOURCE_NOTE_ID TARGET_TEXT`
 
 ```bash
-docker compose exec zenith zenith links resolve SOURCE_NOTE_ID \
+docker compose exec bedrock bedrock links resolve SOURCE_NOTE_ID \
   "News Resolution#2026-08-19"
-docker compose exec zenith zenith links resolve SOURCE_NOTE_ID \
+docker compose exec bedrock bedrock links resolve SOURCE_NOTE_ID \
   "[[News Resolution#2026-08-19|project update]]"
 ```
 
@@ -588,7 +588,7 @@ they are not guessed.
 ### `context ENTRY_ID`
 
 ```bash
-docker compose exec zenith zenith context ENTRY_ID \
+docker compose exec bedrock bedrock context ENTRY_ID \
   --link-depth 1 --nearby-days 3 --max-notes 5
 ```
 
@@ -631,9 +631,9 @@ evidence. Traversal diagnostics contain `source_note_id`, `target_text`,
 ### `warnings [--type TYPE] [--path PATH]`
 
 ```bash
-docker compose exec zenith zenith warnings
-docker compose exec zenith zenith warnings --type missing_link
-docker compose exec zenith zenith warnings --path freeform/Reference.md
+docker compose exec bedrock bedrock warnings
+docker compose exec bedrock bedrock warnings --type missing_link
+docker compose exec bedrock bedrock warnings --path freeform/Reference.md
 ```
 
 Warning types:
@@ -668,7 +668,7 @@ resolution; this command does not mutate the index.
 ### `kanban list`
 
 ```bash
-docker compose exec zenith zenith kanban list
+docker compose exec bedrock bedrock kanban list
 ```
 
 Returns `{"boards": [{"title": "Board", "cards": []}]}`. Each board has `note_id`, `path`,
@@ -677,8 +677,8 @@ Returns `{"boards": [{"title": "Board", "cards": []}]}`. Each board has `note_id
 ### `kanban get BOARD_OR_PATH`
 
 ```bash
-docker compose exec zenith zenith kanban get "Kitchen App"
-docker compose exec zenith zenith kanban get kanban/Kitchen\ App.md
+docker compose exec bedrock bedrock kanban get "Kitchen App"
+docker compose exec bedrock bedrock kanban get kanban/Kitchen\ App.md
 ```
 
 Returns one complete `KanbanBoard`. Missing or ambiguous boards exit `2`.
@@ -686,7 +686,7 @@ Returns one complete `KanbanBoard`. Missing or ambiguous boards exit `2`.
 ### `kanban find [QUERY]`
 
 ```text
-zenith kanban find [QUERY]
+bedrock kanban find [QUERY]
   [--board BOARD] [--column COLUMN]... [--status STATUS]...
   [--checked true|false] [--tag TAG]... [--date-from YYYY-MM-DD]
   [--date-to YYYY-MM-DD] [--exact] [--limit N]
@@ -696,17 +696,17 @@ Examples:
 
 ```bash
 # All unchecked cards in one column
-docker compose exec zenith zenith kanban find \
+docker compose exec bedrock bedrock kanban find \
   --board "Kitchen App" --column ToDo --checked false
 
 # Semantic card search
-docker compose exec zenith zenith kanban find "food expiring" --checked false
+docker compose exec bedrock bedrock kanban find "food expiring" --checked false
 
 # Literally verified card search
-docker compose exec zenith zenith kanban find "shopping list" --exact
+docker compose exec bedrock bedrock kanban find "shopping list" --exact
 
 # Cards dated on one day, from their `@{YYYY-MM-DD}` annotation
-docker compose exec zenith zenith kanban find --date-from 2026-06-06 --date-to 2026-06-06
+docker compose exec bedrock bedrock kanban find --date-from 2026-06-06 --date-to 2026-06-06
 ```
 
 Without query text, the command performs metadata lookup. With query text it
@@ -715,7 +715,7 @@ use any-match semantics; repeated tags are all required.
 
 `--date-from` and `--date-to` filter on the card's `entry_date`, which comes
 from the Obsidian Kanban date annotation. Undated cards never match a date
-range. The same cards also appear in a plain `zenith search --date-from ...`
+range. The same cards also appear in a plain `bedrock search --date-from ...`
 next to daily sections and project updates.
 
 ## Network graph
@@ -723,7 +723,7 @@ next to daily sections and project updates.
 ### `graph export`
 
 ```bash
-docker compose exec -T zenith zenith graph export > graph.json
+docker compose exec -T bedrock bedrock graph export > graph.json
 ```
 
 Exports the complete deterministic graph without context-expansion depth,
@@ -771,14 +771,14 @@ Edge types:
 
 Every command below is a thin adapter over the public library, with one
 exception: `ask` has no library method. The answering agent lives in
-`zenith.agent` and is built per question, beside the library rather than
+`bedrock.agent` and is built per question, beside the library rather than
 inside it.
 
 ```python
-from zenith import Zenith
-from zenith.core.config import Settings
+from bedrock import Bedrock
+from bedrock.core.config import Settings
 
-api = Zenith(Settings.from_env())
+api = Bedrock(Settings.from_env())
 ```
 
 | Library method | CLI equivalent |

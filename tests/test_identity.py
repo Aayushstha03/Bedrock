@@ -2,7 +2,7 @@ from uuid import UUID
 
 import pytest
 
-from zenith.core.identity import entry_id, normalize_vault_path, note_id
+from bedrock.core.identity import entry_id, normalize_vault_path, note_id
 
 
 def test_paths_normalize_cross_platform_separators() -> None:

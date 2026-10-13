@@ -5,13 +5,13 @@ from pathlib import Path
 import pytest
 from qdrant_client import QdrantClient, models
 
-from zenith.core.config import Settings
-from zenith.core.contracts import EntryType, LinkResolution, QueryPlan, RetrievalMode
-from zenith.core.identity import note_id as compute_note_id
-from zenith.index.rebuild import IndexRebuilder
-from zenith.index.schema import create_collection
-from zenith.retrieval.literal import verify_literal
-from zenith.retrieval.service import Retriever
+from bedrock.core.config import Settings
+from bedrock.core.contracts import EntryType, LinkResolution, QueryPlan, RetrievalMode
+from bedrock.core.identity import note_id as compute_note_id
+from bedrock.index.rebuild import IndexRebuilder
+from bedrock.index.schema import create_collection
+from bedrock.retrieval.literal import verify_literal
+from bedrock.retrieval.service import Retriever
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 DENSE_DIMS = 384
@@ -499,7 +499,7 @@ def test_date_filters_match_inclusive_entry_intervals(tmp_path, start, end, expe
 
 
 def test_compacted_log_and_heading_link_round_trip(tmp_path):
-    from zenith.retrieval.context import ContextExpander
+    from bedrock.retrieval.context import ContextExpander
 
     vault = tmp_path / "vault"
     vault.mkdir()

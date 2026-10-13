@@ -3,10 +3,10 @@
 from itertools import pairwise
 from pathlib import Path
 
-from zenith.core.config import Settings
-from zenith.core.contracts import EntryType, WarningType
-from zenith.parser.service import VaultParser
-from zenith.parser.tokens import content_budget, estimate_tokens
+from bedrock.core.config import Settings
+from bedrock.core.contracts import EntryType, WarningType
+from bedrock.parser.service import VaultParser
+from bedrock.parser.tokens import content_budget, estimate_tokens
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 
@@ -163,12 +163,12 @@ def test_the_encoder_window_matches_what_the_parser_budgets_against() -> None:
 
     FastEmbed defaults this model to 128 positions while the model itself
     declares 256. If `LocalEncoders` did not pin the tokenizer, raising
-    `ZENITH_DENSE_TOKEN_WINDOW` would widen the parser's chunks while the
+    `BEDROCK_DENSE_TOKEN_WINDOW` would widen the parser's chunks while the
     encoder kept cutting at its own default, silently losing the difference.
     """
     from fastembed import TextEmbedding
 
-    from zenith.index.encoders import LocalEncoders
+    from bedrock.index.encoders import LocalEncoders
 
     configured = Settings(
         "http://unused",
@@ -186,7 +186,7 @@ def test_the_encoder_window_matches_what_the_parser_budgets_against() -> None:
 
 
 def test_a_stub_encoder_without_a_tokenizer_is_left_alone() -> None:
-    from zenith.index.encoders import LocalEncoders
+    from bedrock.index.encoders import LocalEncoders
 
     encoders = LocalEncoders(settings(FIXTURE_VAULT), dense=object(), sparse=object())
     assert encoders._tokenizer() is None

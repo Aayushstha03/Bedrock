@@ -1,7 +1,7 @@
 """The labels an answering run cites, and what they resolve back to."""
 
-from zenith.agent.sources import Sources
-from zenith.core.contracts import (
+from bedrock.agent.sources import Sources
+from bedrock.core.contracts import (
     EntryType,
     NoteContent,
     NoteType,

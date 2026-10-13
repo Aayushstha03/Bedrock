@@ -6,10 +6,10 @@ import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 from test_agent_tools import ctx  # noqa: F401 - shared hermetic indexed-vault fixture
 
-from zenith.index import diagnostics
-from zenith.vault import service as service_module
-from zenith.vault.mcp import build_server
-from zenith.vault.service import TOOL_NAMES, IndexUnavailable, VaultTools
+from bedrock.index import diagnostics
+from bedrock.vault import service as service_module
+from bedrock.vault.mcp import build_server
+from bedrock.vault.service import TOOL_NAMES, IndexUnavailable, VaultTools
 
 
 @pytest.fixture
@@ -224,8 +224,8 @@ def test_stdio_cli_protocol_and_complete_read(tools):
     async def exercise():
         params = StdioServerParameters(
             command=sys.executable,
-            args=["-m", "zenith.runtime.cli", "mcp"],
-            env={**os.environ, "ZENITH_VAULT_PATH": str(tools.vault.settings.vault_path)},
+            args=["-m", "bedrock.runtime.cli", "mcp"],
+            env={**os.environ, "BEDROCK_VAULT_PATH": str(tools.vault.settings.vault_path)},
         )
         async with stdio_client(params) as (read, write), ClientSession(read, write) as client:
             await client.initialize()

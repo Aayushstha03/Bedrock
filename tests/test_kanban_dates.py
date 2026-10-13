@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from zenith.core.config import Settings
-from zenith.core.contracts import WarningType
-from zenith.parser.kanban import card_annotations
-from zenith.parser.service import VaultParser
+from bedrock.core.config import Settings
+from bedrock.core.contracts import WarningType
+from bedrock.parser.kanban import card_annotations
+from bedrock.parser.service import VaultParser
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 
@@ -114,9 +114,9 @@ def test_annotations_are_stripped_longest_trigger_first() -> None:
 def test_find_kanban_cards_accepts_a_date_range() -> None:
     from inspect import signature
 
-    from zenith.library import Zenith
+    from bedrock.library import Bedrock
 
-    parameters = signature(Zenith.find_kanban_cards).parameters
+    parameters = signature(Bedrock.find_kanban_cards).parameters
     assert "date_from" in parameters and "date_to" in parameters
 
 

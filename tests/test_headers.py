@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from zenith.core.config import Settings
-from zenith.parser.headers import read_header, read_headers
-from zenith.parser.markdown import frontmatter_aliases
-from zenith.parser.service import VaultParser
+from bedrock.core.config import Settings
+from bedrock.parser.headers import read_header, read_headers
+from bedrock.parser.markdown import frontmatter_aliases
+from bedrock.parser.service import VaultParser
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 

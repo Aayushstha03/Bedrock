@@ -21,10 +21,10 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 from qdrant_client import QdrantClient, models
 
-from zenith.agent import DEFAULT_LIMITS, Sources, build_agent
-from zenith.core.config import Settings
-from zenith.index.rebuild import IndexRebuilder
-from zenith.library import Zenith
+from bedrock.agent import DEFAULT_LIMITS, Sources, build_agent
+from bedrock.core.config import Settings
+from bedrock.index.rebuild import IndexRebuilder
+from bedrock.library import Bedrock
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 
@@ -61,7 +61,7 @@ def vault_api(tmp_path: Path) -> Sources:
         IndexRebuilder(settings, client=client, encoders=encoders).rebuild()
     # The agent depends on the run's source ledger, not on the library, so the
     # labels it hands out survive from one tool call to the next.
-    return Sources(Zenith(settings, client=client, encoders=encoders))
+    return Sources(Bedrock(settings, client=client, encoders=encoders))
 
 
 @pytest.fixture

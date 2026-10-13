@@ -15,8 +15,8 @@ def test_compose_contract_is_local_persistent_and_read_only() -> None:
     assert "dashboard:" in compose
     assert "condition: service_healthy" in compose
     assert 'profiles: ["tools"]' in compose
-    assert 'command: ["zenith", "models", "prefetch"]' in compose
-    # LM Studio runs on the host, so the zenith service needs a routed network
+    assert 'command: ["bedrock", "models", "prefetch"]' in compose
+    # LM Studio runs on the host, so the bedrock service needs a routed network
     # and a host gateway. Qdrant and the index path stay unroutable.
     assert '"host.docker.internal:host-gateway"' in compose
     assert compose.count("internal: true") == 1
@@ -34,7 +34,7 @@ def test_every_service_runs_the_working_tree_rather_than_the_baked_copy() -> Non
     dockerfile = (ROOT / "Dockerfile").read_text()
 
     assert "PYTHONPATH=/app/src" in dockerfile
-    # Every service that runs the `zenith` script reads the same source.
+    # Every service that runs the `bedrock` script reads the same source.
     assert compose.count("target: /app/src") == 3
     assert compose.count("source: ./src") == 3
     # The container runs as uid 10001. Writing into the working tree would
@@ -47,13 +47,13 @@ def test_every_service_runs_the_working_tree_rather_than_the_baked_copy() -> Non
 def test_the_watcher_runs_as_its_own_service_off_the_routed_network() -> None:
     """Indexing must not depend on the answering model being reachable."""
     compose = (ROOT / "compose.yaml").read_text()
-    assert 'command: ["zenith", "watch"]' in compose
+    assert 'command: ["bedrock", "watch"]' in compose
     watch = compose.split("  watch:", 1)[1].split("\n  model-prefetch:", 1)[0]
     assert "condition: service_healthy" in watch
     assert "read_only: true" in watch
     assert "target: /app/src" in watch
     assert "model-cache:/models" in watch
-    assert "zenith-internal" in watch
+    assert "bedrock-internal" in watch
     # The watcher parses and indexes only. Joining `llm` would give the one
     # long-running vault reader outbound network access it has no use for.
     assert "- llm" not in watch
@@ -67,21 +67,21 @@ def test_documented_env_contains_all_compose_settings() -> None:
         "QDRANT_IMAGE",
         "QDRANT_BIND_ADDRESS",
         "QDRANT_PORT",
-        "ZENITH_VAULT_PATH",
-        "ZENITH_COLLECTION",
-        "ZENITH_DENSE_MODEL",
-        "ZENITH_SPARSE_MODEL",
-        "ZENITH_LOG_ROOT",
-        "ZENITH_KANBAN_ROOT",
-        "ZENITH_EXCLUDED_DIRECTORIES",
-        "ZENITH_KNOWN_TAGS",
-        "ZENITH_TAG_ALIASES",
+        "BEDROCK_VAULT_PATH",
+        "BEDROCK_COLLECTION",
+        "BEDROCK_DENSE_MODEL",
+        "BEDROCK_SPARSE_MODEL",
+        "BEDROCK_LOG_ROOT",
+        "BEDROCK_KANBAN_ROOT",
+        "BEDROCK_EXCLUDED_DIRECTORIES",
+        "BEDROCK_KNOWN_TAGS",
+        "BEDROCK_TAG_ALIASES",
         "RESTART_POLICY",
-        "ZENITH_LLM_BASE_URL",
-        "ZENITH_LLM_MODEL",
-        "ZENITH_LLM_API_KEY",
-        "ZENITH_LLM_TIMEOUT",
-        "ZENITH_LLM_TEMPERATURE",
+        "BEDROCK_LLM_BASE_URL",
+        "BEDROCK_LLM_MODEL",
+        "BEDROCK_LLM_API_KEY",
+        "BEDROCK_LLM_TIMEOUT",
+        "BEDROCK_LLM_TEMPERATURE",
     }
     for name in required:
         assert f"{name}=" in env
@@ -118,9 +118,9 @@ def test_mcp_service_reuses_read_only_vault_and_publishes_loopback() -> None:
 
     services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
     mcp = services["mcp"]
-    assert mcp["environment"] == services["zenith"]["environment"]
-    assert mcp["volumes"] == services["zenith"]["volumes"]
+    assert mcp["environment"] == services["bedrock"]["environment"]
+    assert mcp["volumes"] == services["bedrock"]["volumes"]
     assert "127.0.0.1" in mcp["ports"][0]
     assert "streamable-http" in mcp["command"]
     assert "-T" not in mcp["command"]
-    assert "zenith-internal" in mcp["networks"] and "llm" not in mcp["networks"]
+    assert "bedrock-internal" in mcp["networks"] and "llm" not in mcp["networks"]

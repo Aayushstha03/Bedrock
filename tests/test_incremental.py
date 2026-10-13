@@ -4,11 +4,11 @@ from types import SimpleNamespace
 import pytest
 from qdrant_client import models
 
-from zenith.core.config import Settings
-from zenith.index.incremental import IncrementalIndexer
-from zenith.index.links import resolve_links
-from zenith.index.rebuild import note_alias_map
-from zenith.parser.service import VaultParser
+from bedrock.core.config import Settings
+from bedrock.index.incremental import IncrementalIndexer
+from bedrock.index.links import resolve_links
+from bedrock.index.rebuild import note_alias_map
+from bedrock.parser.service import VaultParser
 
 
 class TrackingEncoders:

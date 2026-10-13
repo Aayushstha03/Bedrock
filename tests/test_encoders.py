@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from zenith.core.config import Settings
-from zenith.index.encoders import LocalEncoders
+from bedrock.core.config import Settings
+from bedrock.index.encoders import LocalEncoders
 
 
 class Dense:

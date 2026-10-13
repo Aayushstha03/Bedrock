@@ -1,6 +1,6 @@
 import pytest
 
-from zenith.parser.markdown import heading_dates, headings, markdown_tokens, valid_iso_date
+from bedrock.parser.markdown import heading_dates, headings, markdown_tokens, valid_iso_date
 
 
 @pytest.mark.parametrize("value", ["2026-08-20", "2000-02-29", "0001-01-01"])

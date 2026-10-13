@@ -6,12 +6,12 @@ from pathlib import Path
 import pytest
 from qdrant_client import QdrantClient, models
 
-from zenith.core.config import Settings
-from zenith.core.contracts import LinkResolution, RetrievalMode, WarningType
-from zenith.core.identity import note_id
-from zenith.index.rebuild import IndexRebuilder
-from zenith.library import Zenith
-from zenith.parser.service import VaultParser
+from bedrock.core.config import Settings
+from bedrock.core.contracts import LinkResolution, RetrievalMode, WarningType
+from bedrock.core.identity import note_id
+from bedrock.index.rebuild import IndexRebuilder
+from bedrock.library import Bedrock
+from bedrock.parser.service import VaultParser
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 
@@ -36,7 +36,7 @@ class HashEncoders:
         return vectors
 
 
-def indexed_api(tmp_path: Path) -> Zenith:
+def indexed_api(tmp_path: Path) -> Bedrock:
     settings = Settings(
         "http://unused",
         FIXTURE_VAULT,
@@ -50,7 +50,7 @@ def indexed_api(tmp_path: Path) -> Zenith:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         IndexRebuilder(settings, client=client, encoders=encoders).rebuild()
-    return Zenith(settings, client=client, encoders=encoders)
+    return Bedrock(settings, client=client, encoders=encoders)
 
 
 def test_library_note_entry_search_and_link_operations(tmp_path: Path) -> None:
@@ -134,7 +134,7 @@ def test_library_parses_the_vault_once_until_a_note_changes(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         IndexRebuilder(settings, client=client, encoders=encoders).rebuild()
-    api = Zenith(settings, client=client, encoders=encoders)
+    api = Bedrock(settings, client=client, encoders=encoders)
 
     parses: list[object] = []
     original = VaultParser.parse_vault

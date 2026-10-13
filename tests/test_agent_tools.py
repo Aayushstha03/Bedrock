@@ -13,12 +13,12 @@ from pydantic_ai.tools import Tool
 from pydantic_ai.usage import RunUsage
 from qdrant_client import QdrantClient, models
 
-from zenith.agent import tools
-from zenith.agent.projections import MAX_ENTRY_CHARS, MAX_NOTE_CHARS
-from zenith.agent.sources import Sources
-from zenith.core.config import Settings
-from zenith.index.rebuild import IndexRebuilder
-from zenith.library import Zenith
+from bedrock.agent import tools
+from bedrock.agent.projections import MAX_ENTRY_CHARS, MAX_NOTE_CHARS
+from bedrock.agent.sources import Sources
+from bedrock.core.config import Settings
+from bedrock.index.rebuild import IndexRebuilder
+from bedrock.library import Bedrock
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 
@@ -53,7 +53,7 @@ def ctx(tmp_path: Path) -> RunContext[Sources]:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         IndexRebuilder(settings, client=client, encoders=encoders).rebuild()
-    api = Zenith(settings, client=client, encoders=encoders)
+    api = Bedrock(settings, client=client, encoders=encoders)
     return RunContext(deps=Sources(api), model=TestModel(), usage=RunUsage())
 
 
@@ -227,8 +227,8 @@ def test_a_clipped_entry_only_claims_a_verified_match_it_can_show() -> None:
     Such an entry gets clipped here, so a head-clip can drop the very phrase
     the match was verified against and still assert it was proven.
     """
-    from zenith.agent import projections
-    from zenith.core.contracts import EntryType, NoteType, RetrievalMode, SearchResult
+    from bedrock.agent import projections
+    from bedrock.core.contracts import EntryType, NoteType, RetrievalMode, SearchResult
 
     phrase = "fried chicken"
     text = "a" * 3000 + f" {phrase} " + "b" * 3000
@@ -352,8 +352,8 @@ def test_an_oversized_note_is_marked_as_a_fragment() -> None:
     The flag is what stops the model concluding that a note does not mention
     something, from a part of it that does not.
     """
-    from zenith.agent import projections
-    from zenith.core.contracts import NoteContent, NoteType
+    from bedrock.agent import projections
+    from bedrock.core.contracts import NoteContent, NoteType
 
     content = NoteContent("n", "p.md", "N", NoteType.STANDARD, "a" * (MAX_NOTE_CHARS + 500))
     projected = projections.note(Sources(None), content)

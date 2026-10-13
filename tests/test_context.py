@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from zenith.core.contracts import (
+from bedrock.core.contracts import (
     ContextLabel,
     EntryType,
     Link,
@@ -13,7 +13,7 @@ from zenith.core.contracts import (
     RetrievalMode,
     SearchResult,
 )
-from zenith.retrieval.context import ContextExpander
+from bedrock.retrieval.context import ContextExpander
 
 
 def result(

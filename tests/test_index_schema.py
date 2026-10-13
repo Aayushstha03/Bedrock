@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 from qdrant_client import models
 
-from zenith.core.config import Settings
-from zenith.index.schema import PAYLOAD_INDEXES, create_collection, initialize_index
+from bedrock.core.config import Settings
+from bedrock.index.schema import PAYLOAD_INDEXES, create_collection, initialize_index
 
 
 class Client:

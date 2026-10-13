@@ -1,5 +1,5 @@
 [project]
-name = "zenith"
+name = "bedrock"
 version = "0.1.0"
 description = "Local-first Markdown knowledge index backed solely by Qdrant"
 readme = "README.md"
@@ -15,8 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-zenith = "zenith.runtime.cli:main"
-zenith-vault = "zenith.runtime.cli:main"
+bedrock = "bedrock.runtime.cli:main"
 
 [dependency-groups]
 dev = [
@@ -67,4 +66,4 @@ ignore = [
 # The Unicode digit lookalikes are the subject of the test, not a typo.
 "tests/test_dates.py" = ["RUF001"]
 # `BaseHTTPRequestHandler` fixes the names and arity of what we override.
-"src/zenith/runtime/cli.py" = ["ARG002"]
+"src/bedrock/runtime/cli.py" = ["ARG002"]

@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from zenith.core.config import Settings
-from zenith.core.contracts import EntryType, NoteType, WarningType
-from zenith.parser.service import VaultParser
+from bedrock.core.config import Settings
+from bedrock.core.contracts import EntryType, NoteType, WarningType
+from bedrock.parser.service import VaultParser
 
 FIXTURES = Path(__file__).parent / "fixtures"
 VAULT = FIXTURES / "vault"

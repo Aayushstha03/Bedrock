@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from zenith.core.config import Settings
-from zenith.index.rebuild import IndexRebuilder
+from bedrock.core.config import Settings
+from bedrock.index.rebuild import IndexRebuilder
 
 
 class Encoders:

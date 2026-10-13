@@ -1,4 +1,4 @@
-name: zenith
+name: bedrock
 
 services:
   qdrant:
@@ -17,10 +17,10 @@ services:
       retries: 20
       start_period: 5s
     networks:
-      - zenith-internal
+      - bedrock-internal
       - dashboard
 
-  zenith:
+  bedrock:
     build:
       context: .
       dockerfile: Dockerfile
@@ -33,35 +33,35 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment: &vault-environment
-      ZENITH_QDRANT_URL: http://qdrant:6333
-      ZENITH_VAULT_PATH: /vault
-      ZENITH_MODEL_CACHE_PATH: /models
-      ZENITH_COLLECTION: ${ZENITH_COLLECTION}
-      ZENITH_DENSE_MODEL: ${ZENITH_DENSE_MODEL}
-      ZENITH_SPARSE_MODEL: ${ZENITH_SPARSE_MODEL}
-      ZENITH_LOG_ROOT: ${ZENITH_LOG_ROOT}
-      ZENITH_KANBAN_ROOT: ${ZENITH_KANBAN_ROOT}
-      ZENITH_EXCLUDED_DIRECTORIES: ${ZENITH_EXCLUDED_DIRECTORIES}
-      ZENITH_KNOWN_TAGS: ${ZENITH_KNOWN_TAGS}
-      ZENITH_TAG_ALIASES: ${ZENITH_TAG_ALIASES}
-      ZENITH_LLM_BASE_URL: ${ZENITH_LLM_BASE_URL}
-      ZENITH_LLM_MODEL: ${ZENITH_LLM_MODEL}
-      ZENITH_LLM_API_KEY: ${ZENITH_LLM_API_KEY}
-      ZENITH_LLM_TIMEOUT: ${ZENITH_LLM_TIMEOUT}
-      ZENITH_LLM_TEMPERATURE: ${ZENITH_LLM_TEMPERATURE}
+      BEDROCK_QDRANT_URL: http://qdrant:6333
+      BEDROCK_VAULT_PATH: /vault
+      BEDROCK_MODEL_CACHE_PATH: /models
+      BEDROCK_COLLECTION: ${BEDROCK_COLLECTION}
+      BEDROCK_DENSE_MODEL: ${BEDROCK_DENSE_MODEL}
+      BEDROCK_SPARSE_MODEL: ${BEDROCK_SPARSE_MODEL}
+      BEDROCK_LOG_ROOT: ${BEDROCK_LOG_ROOT}
+      BEDROCK_KANBAN_ROOT: ${BEDROCK_KANBAN_ROOT}
+      BEDROCK_EXCLUDED_DIRECTORIES: ${BEDROCK_EXCLUDED_DIRECTORIES}
+      BEDROCK_KNOWN_TAGS: ${BEDROCK_KNOWN_TAGS}
+      BEDROCK_TAG_ALIASES: ${BEDROCK_TAG_ALIASES}
+      BEDROCK_LLM_BASE_URL: ${BEDROCK_LLM_BASE_URL}
+      BEDROCK_LLM_MODEL: ${BEDROCK_LLM_MODEL}
+      BEDROCK_LLM_API_KEY: ${BEDROCK_LLM_API_KEY}
+      BEDROCK_LLM_TIMEOUT: ${BEDROCK_LLM_TIMEOUT}
+      BEDROCK_LLM_TEMPERATURE: ${BEDROCK_LLM_TEMPERATURE}
     volumes: &vault-volumes
       # The working tree, not the copy baked into the image. `PYTHONPATH` in
       # the Dockerfile puts it ahead of site-packages, so `docker compose up`
       # runs the code as it is on disk. Read-only: a container writing here as
       # uid 10001 would leave files the host user cannot edit. A one-shot
       # command through `docker compose exec` picks up an edit at once; the
-      # long-running processes need `docker compose restart zenith watch`.
+      # long-running processes need `docker compose restart bedrock watch`.
       - type: bind
         source: ./src
         target: /app/src
         read_only: true
       - type: bind
-        source: ${ZENITH_VAULT_PATH}
+        source: ${BEDROCK_VAULT_PATH}
         target: /vault
         read_only: true
       - model-cache:/models
@@ -72,7 +72,7 @@ services:
       retries: 12
       start_period: 10s
     networks:
-      - zenith-internal
+      - bedrock-internal
       - llm
 
   mcp:
@@ -85,9 +85,9 @@ services:
         condition: service_healthy
     environment: *vault-environment
     volumes: *vault-volumes
-    command: ["zenith", "mcp", "--transport", "streamable-http", "--host", "0.0.0.0"]
+    command: ["bedrock", "mcp", "--transport", "streamable-http", "--host", "0.0.0.0"]
     ports:
-      - "${ZENITH_MCP_BIND_ADDRESS:-127.0.0.1}:${ZENITH_MCP_PORT:-8000}:8000"
+      - "${BEDROCK_MCP_BIND_ADDRESS:-127.0.0.1}:${BEDROCK_MCP_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), timeout=2).close()"]
       interval: 10s
@@ -95,7 +95,7 @@ services:
       retries: 12
       start_period: 10s
     networks:
-      - zenith-internal
+      - bedrock-internal
       - dashboard
 
   # The watcher is a second process, not a second copy of the service. It
@@ -111,38 +111,38 @@ services:
       qdrant:
         condition: service_healthy
     environment:
-      ZENITH_QDRANT_URL: http://qdrant:6333
-      ZENITH_VAULT_PATH: /vault
-      ZENITH_MODEL_CACHE_PATH: /models
-      ZENITH_COLLECTION: ${ZENITH_COLLECTION}
-      ZENITH_DENSE_MODEL: ${ZENITH_DENSE_MODEL}
-      ZENITH_SPARSE_MODEL: ${ZENITH_SPARSE_MODEL}
-      ZENITH_LOG_ROOT: ${ZENITH_LOG_ROOT}
-      ZENITH_KANBAN_ROOT: ${ZENITH_KANBAN_ROOT}
-      ZENITH_EXCLUDED_DIRECTORIES: ${ZENITH_EXCLUDED_DIRECTORIES}
-      ZENITH_KNOWN_TAGS: ${ZENITH_KNOWN_TAGS}
-      ZENITH_TAG_ALIASES: ${ZENITH_TAG_ALIASES}
+      BEDROCK_QDRANT_URL: http://qdrant:6333
+      BEDROCK_VAULT_PATH: /vault
+      BEDROCK_MODEL_CACHE_PATH: /models
+      BEDROCK_COLLECTION: ${BEDROCK_COLLECTION}
+      BEDROCK_DENSE_MODEL: ${BEDROCK_DENSE_MODEL}
+      BEDROCK_SPARSE_MODEL: ${BEDROCK_SPARSE_MODEL}
+      BEDROCK_LOG_ROOT: ${BEDROCK_LOG_ROOT}
+      BEDROCK_KANBAN_ROOT: ${BEDROCK_KANBAN_ROOT}
+      BEDROCK_EXCLUDED_DIRECTORIES: ${BEDROCK_EXCLUDED_DIRECTORIES}
+      BEDROCK_KNOWN_TAGS: ${BEDROCK_KNOWN_TAGS}
+      BEDROCK_TAG_ALIASES: ${BEDROCK_TAG_ALIASES}
     volumes:
       # The working tree, not the copy baked into the image. `PYTHONPATH` in
       # the Dockerfile puts it ahead of site-packages, so `docker compose up`
       # runs the code as it is on disk. Read-only: a container writing here as
       # uid 10001 would leave files the host user cannot edit. A one-shot
       # command through `docker compose exec` picks up an edit at once; the
-      # long-running processes need `docker compose restart zenith watch`.
+      # long-running processes need `docker compose restart bedrock watch`.
       - type: bind
         source: ./src
         target: /app/src
         read_only: true
       - type: bind
-        source: ${ZENITH_VAULT_PATH}
+        source: ${BEDROCK_VAULT_PATH}
         target: /vault
         read_only: true
       - model-cache:/models
     # There is no endpoint to probe. The process holds the inotify watches, so
     # its liveness is its presence, and the restart policy covers a crash.
-    command: ["zenith", "watch"]
+    command: ["bedrock", "watch"]
     networks:
-      - zenith-internal
+      - bedrock-internal
 
   model-prefetch:
     profiles: ["tools"]
@@ -150,29 +150,29 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      ZENITH_MODEL_CACHE_PATH: /models
-      ZENITH_DENSE_MODEL: ${ZENITH_DENSE_MODEL}
-      ZENITH_SPARSE_MODEL: ${ZENITH_SPARSE_MODEL}
+      BEDROCK_MODEL_CACHE_PATH: /models
+      BEDROCK_DENSE_MODEL: ${BEDROCK_DENSE_MODEL}
+      BEDROCK_SPARSE_MODEL: ${BEDROCK_SPARSE_MODEL}
     volumes:
       # The working tree, not the copy baked into the image. `PYTHONPATH` in
       # the Dockerfile puts it ahead of site-packages, so `docker compose up`
       # runs the code as it is on disk. Read-only: a container writing here as
       # uid 10001 would leave files the host user cannot edit. A one-shot
       # command through `docker compose exec` picks up an edit at once; the
-      # long-running processes need `docker compose restart zenith watch`.
+      # long-running processes need `docker compose restart bedrock watch`.
       - type: bind
         source: ./src
         target: /app/src
         read_only: true
       - model-cache:/models
-    command: ["zenith", "models", "prefetch"]
+    command: ["bedrock", "models", "prefetch"]
 
 networks:
   # Qdrant and the index path stay unreachable from outside the project.
-  zenith-internal:
+  bedrock-internal:
     internal: true
   # Reaching LM Studio on the host needs a routed network. Docker has no
-  # host-only network, so joining this grants the zenith service outbound
+  # host-only network, so joining this grants the bedrock service outbound
   # access. Nothing else joins it.
   llm:
   dashboard:

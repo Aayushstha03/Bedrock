@@ -4,14 +4,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from zenith.core.config import Settings
-from zenith.runtime.cli import build_parser, main
+from bedrock.core.config import Settings
+from bedrock.runtime.cli import build_parser, main
 
 
 @pytest.fixture
 def cli_settings(monkeypatch, tmp_path: Path) -> Settings:
     settings = Settings("http://unused", tmp_path, tmp_path, "entries", "127.0.0.1", 8080)
-    monkeypatch.setattr("zenith.runtime.cli.Settings.from_env", lambda: settings)
+    monkeypatch.setattr("bedrock.runtime.cli.Settings.from_env", lambda: settings)
     return settings
 
 
@@ -45,7 +45,7 @@ def test_phase_7_command_surface_parses(argv: list[str]) -> None:
 def test_search_command_emits_stable_json(monkeypatch, cli_settings, capsys) -> None:
     calls: list[dict[str, object]] = []
 
-    class FakeZenith:
+    class FakeBedrock:
         def __init__(self, settings: Settings) -> None:
             assert settings is cli_settings
 
@@ -53,7 +53,7 @@ def test_search_command_emits_stable_json(monkeypatch, cli_settings, capsys) -> 
             calls.append(kwargs)
             return (SimpleNamespace(to_dict=lambda: {"entry_id": "entry-1"}),)
 
-    monkeypatch.setattr("zenith.runtime.cli.Zenith", FakeZenith)
+    monkeypatch.setattr("bedrock.runtime.cli.Bedrock", FakeBedrock)
     code = main(
         [
             "search",
@@ -75,7 +75,7 @@ def test_search_command_emits_stable_json(monkeypatch, cli_settings, capsys) -> 
 
 
 def test_cli_validation_errors_are_json_and_exit_two(monkeypatch, cli_settings, capsys) -> None:
-    monkeypatch.setattr("zenith.runtime.cli.Zenith", lambda _: object())
+    monkeypatch.setattr("bedrock.runtime.cli.Bedrock", lambda _: object())
 
     code = main(["search", "--mode", "literal"])
     error = json.loads(capsys.readouterr().err)
@@ -93,7 +93,7 @@ def test_unknown_command_is_json_and_exit_two(cli_settings, capsys) -> None:
 
 
 def test_note_read_command_emits_the_markdown_file(monkeypatch, cli_settings, capsys) -> None:
-    class FakeZenith:
+    class FakeBedrock:
         def __init__(self, settings: Settings) -> None:
             assert settings is cli_settings
 
@@ -112,7 +112,7 @@ def test_note_read_command_emits_the_markdown_file(monkeypatch, cli_settings, ca
         def get_note(self, path_or_title: str):  # pragma: no cover - must not run
             raise AssertionError("note read must not fall through to note get")
 
-    monkeypatch.setattr("zenith.runtime.cli.Zenith", FakeZenith)
+    monkeypatch.setattr("bedrock.runtime.cli.Bedrock", FakeBedrock)
     assert main(["note", "read", "News Resolution"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["content"] == "# News Resolution\n"
@@ -121,16 +121,16 @@ def test_note_read_command_emits_the_markdown_file(monkeypatch, cli_settings, ca
 
 def test_ask_refuses_to_answer_from_an_unready_index(monkeypatch, cli_settings, capsys) -> None:
     """Silence from an unready index reads exactly like an honest empty answer."""
-    monkeypatch.setattr("zenith.runtime.cli.Zenith", lambda settings: object())
+    monkeypatch.setattr("bedrock.runtime.cli.Bedrock", lambda settings: object())
     monkeypatch.setattr(
-        "zenith.runtime.cli.health_report",
+        "bedrock.runtime.cli.health_report",
         lambda settings: {"ready": False, "index": {"ready": False}},
     )
 
     def must_not_reach(settings):  # pragma: no cover - must not run
         raise AssertionError("LM Studio must not be contacted for an unready index")
 
-    monkeypatch.setattr("zenith.runtime.cli.llm_health", must_not_reach)
+    monkeypatch.setattr("bedrock.runtime.cli.llm_health", must_not_reach)
     assert main(["ask", "what did I do?"]) == 1
     error = json.loads(capsys.readouterr().err)
     assert error["error"]["type"] == "IndexUnavailable"
@@ -140,17 +140,17 @@ def test_ask_refuses_to_answer_from_an_unready_index(monkeypatch, cli_settings, 
 def test_ask_refuses_to_run_when_lm_studio_is_not_serving_the_model(
     monkeypatch, cli_settings, capsys
 ) -> None:
-    monkeypatch.setattr("zenith.runtime.cli.Zenith", lambda settings: object())
-    monkeypatch.setattr("zenith.runtime.cli.health_report", lambda settings: {"ready": True})
+    monkeypatch.setattr("bedrock.runtime.cli.Bedrock", lambda settings: object())
+    monkeypatch.setattr("bedrock.runtime.cli.health_report", lambda settings: {"ready": True})
     monkeypatch.setattr(
-        "zenith.runtime.cli.llm_health",
+        "bedrock.runtime.cli.llm_health",
         lambda settings: {"ready": False, "required": False, "error": "Connection refused"},
     )
 
     def must_not_build(*_: object, **__: object):  # pragma: no cover - must not run
         raise AssertionError("the agent must not be built without a served model")
 
-    monkeypatch.setattr("zenith.agent.build_agent", must_not_build)
+    monkeypatch.setattr("bedrock.agent.build_agent", must_not_build)
     assert main(["ask", "what did I do?"]) == 1
     error = json.loads(capsys.readouterr().err)
     assert error["error"]["type"] == "LLMUnavailable"
@@ -163,7 +163,7 @@ def test_ask_reports_the_answer_with_the_evidence_it_looked_at(monkeypatch, cli_
     from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
     from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-    import zenith.agent.service as agent_service
+    import bedrock.agent.service as agent_service
 
     deps = object()
     reached: list[object] = []
@@ -182,9 +182,9 @@ def test_ask_reports_the_answer_with_the_evidence_it_looked_at(monkeypatch, cli_
             return ModelResponse(parts=[ToolCallPart("search_notes", {"query": "pipeline"})])
         return ModelResponse(parts=[TextPart("You worked on the pipeline. [s1]")])
 
-    monkeypatch.setattr("zenith.runtime.cli.Zenith", lambda settings: deps)
-    monkeypatch.setattr("zenith.runtime.cli.health_report", lambda settings: {"ready": True})
-    monkeypatch.setattr("zenith.runtime.cli.llm_health", lambda settings: {"ready": True})
+    monkeypatch.setattr("bedrock.runtime.cli.Bedrock", lambda settings: deps)
+    monkeypatch.setattr("bedrock.runtime.cli.health_report", lambda settings: {"ready": True})
+    monkeypatch.setattr("bedrock.runtime.cli.llm_health", lambda settings: {"ready": True})
     monkeypatch.setattr(agent_service, "TOOLS", [search_notes])
     monkeypatch.setattr(agent_service, "build_model", lambda settings: FunctionModel(script))
 
@@ -213,9 +213,9 @@ def test_ask_corrects_a_missing_citation(monkeypatch, cli_settings, capsys) -> N
     from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, UserPromptPart
     from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-    import zenith.agent.service as agent_service
-    from zenith.agent.sources import Sources
-    from zenith.core.contracts import NoteContent, NoteType
+    import bedrock.agent.service as agent_service
+    from bedrock.agent.sources import Sources
+    from bedrock.core.contracts import NoteContent, NoteType
 
     def search_notes(ctx: RunContext[Sources], query: str) -> dict:
         """Return one source.
@@ -237,9 +237,9 @@ def test_ask_corrects_a_missing_citation(monkeypatch, cli_settings, capsys) -> N
             return ModelResponse(parts=[ToolCallPart("search_notes", {"query": "note"})])
         return ModelResponse(parts=[TextPart("The note says this.")])
 
-    monkeypatch.setattr("zenith.runtime.cli.Zenith", lambda settings: object())
-    monkeypatch.setattr("zenith.runtime.cli.health_report", lambda settings: {"ready": True})
-    monkeypatch.setattr("zenith.runtime.cli.llm_health", lambda settings: {"ready": True})
+    monkeypatch.setattr("bedrock.runtime.cli.Bedrock", lambda settings: object())
+    monkeypatch.setattr("bedrock.runtime.cli.health_report", lambda settings: {"ready": True})
+    monkeypatch.setattr("bedrock.runtime.cli.llm_health", lambda settings: {"ready": True})
     monkeypatch.setattr(agent_service, "TOOLS", [search_notes])
     monkeypatch.setattr(agent_service, "build_model", lambda settings: FunctionModel(script))
 
@@ -257,5 +257,5 @@ def test_ask_leaves_the_agent_stack_unimported_for_other_commands(monkeypatch, c
     import subprocess
     import sys
 
-    probe = "import sys, zenith.runtime.cli;sys.exit(1 if 'pydantic_ai' in sys.modules else 0)"
+    probe = "import sys, bedrock.runtime.cli;sys.exit(1 if 'pydantic_ai' in sys.modules else 0)"
     assert subprocess.run([sys.executable, "-c", probe]).returncode == 0

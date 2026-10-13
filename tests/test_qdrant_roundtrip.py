@@ -3,11 +3,11 @@ from pathlib import Path
 
 from qdrant_client import QdrantClient, models
 
-from zenith.core.config import Settings
-from zenith.index.links import resolve_links
-from zenith.index.rebuild import IndexRebuilder, note_alias_map
-from zenith.index.schema import create_collection
-from zenith.parser.service import VaultParser
+from bedrock.core.config import Settings
+from bedrock.index.links import resolve_links
+from bedrock.index.rebuild import IndexRebuilder, note_alias_map
+from bedrock.index.schema import create_collection
+from bedrock.parser.service import VaultParser
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 

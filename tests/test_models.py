@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from zenith.core.config import Settings
-from zenith.runtime.models import prefetch, readiness
+from bedrock.core.config import Settings
+from bedrock.runtime.models import prefetch, readiness
 
 
 class DenseEncoder:
