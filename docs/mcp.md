@@ -78,7 +78,9 @@ Search results carry `entry_id`, `note_id`, path, title, heading path, numeric
 inclusive source lines, both explicit date fields, tags, mode, and bounded text.
 An entry snippet is at most 1,200 characters; `text_truncated` reports clipping.
 Follow up with `read_note` using its source range to retrieve original Markdown.
-Search text is cleaned prose, while `read_note` includes code and frontmatter.
+Search text includes prose, inline code, and code-block content without Markdown
+delimiters. Code does not contribute tags or graph links. `read_note` includes
+the original formatting and frontmatter.
 
 Reads return at most 200 lines and 12,000 characters. Follow `next_line` and
 `next_char_offset` (or zero when absent) until `has_more` is false. Character

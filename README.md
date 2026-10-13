@@ -97,6 +97,16 @@ The Qdrant dashboard is at <http://localhost:6333/dashboard>.
   note path such as `[[projects/Note.md#Heading]]`). Heading names must match
   the stored heading exactly. Block references and same-note heading links
   are not supported by graph traversal.
+- **Technical snippets:** inline code and code blocks are searchable alongside
+  prose. Tags and wikilinks inside code remain literal text rather than tags
+  or graph connections. Original Markdown is available through `read_note`.
+
+After upgrading to searchable code, refresh the existing index:
+
+```bash
+docker compose restart zenith watch mcp
+docker compose exec zenith zenith index update
+```
 
 ## Working on it
 

@@ -75,7 +75,7 @@ def test_standard_note_mixes_dated_and_undated_entries() -> None:
     assert more_notes.entry_date is None
 
 
-def test_tags_and_links_come_only_from_eligible_prose() -> None:
+def test_code_is_searchable_but_tags_and_links_come_only_from_prose() -> None:
     note = by_path(["freeform/Reference.md"])["freeform/Reference.md"]
     entry = note.entries[0]
     assert entry.tags == ("journal",)
@@ -89,8 +89,9 @@ def test_tags_and_links_come_only_from_eligible_prose() -> None:
     # a link used to inherit the line of the first prose in its section.
     assert [link.line for link in links] == [20, 21, 22]
     text = "\n".join(item.text for item in note.entries)
-    assert "Not a link" not in text
-    assert "Still not a link" not in text
+    assert "#recipe [[Not a link]]" in text
+    assert 'print("[[Still not a link]]")' in text
+    assert "```python" not in text
     assert "https://example.test/page#fragment" in entry.web_links
     assert [warning.kind for warning in note.warnings] == [WarningType.UNKNOWN_TAG]
 

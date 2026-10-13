@@ -33,7 +33,7 @@ from zenith.parser.markdown import (
 )
 from zenith.parser.tokens import content_budget, estimate_tokens
 
-PARSER_VERSION = "3.1.1"
+PARSER_VERSION = "3.2.0"
 
 
 class VaultParser:

@@ -117,8 +117,9 @@ files -> parse -> entries -> resolve links -> encode -> points -> Qdrant
 | encode | `index/encoders.py` | Build one dense and one sparse vector per entry. |
 | store | `index/rebuild.py`, `index/incremental.py` | Write the points to Qdrant. |
 
-Parsing uses a CommonMark AST, so `# Heading` never becomes a tag, and code,
-URLs, and plugin settings never reach the searchable text.
+Parsing uses a CommonMark AST, so `# Heading` never becomes a tag. Inline code
+and code-block content are searchable, but tags and wikilinks inside code do
+not become metadata or graph edges. Kanban plugin settings remain excluded.
 
 Encoding is pinned: `sentence-transformers/all-MiniLM-L6-v2` for the dense
 `semantic` vector at 384 dimensions and cosine distance, and `Qdrant/bm25` for
@@ -344,7 +345,8 @@ not contact it at all.
 - Use deterministic ids and idempotent upserts. Leave no stale points after a
   rename, a deletion, or a version upgrade.
 - `# Heading` never becomes a tag, and a section's tags never leak outward.
-- Code, URLs, and plugin settings never reach searchable prose.
+- Code is searchable without contributing tag metadata or graph edges; Kanban
+  plugin settings remain excluded.
 - Never silently resolve an ambiguous note title.
 - Never infer a date from a link, and never let a mentioned date establish
   chronology.

@@ -1,4 +1,4 @@
-"""CommonMark AST helpers and eligible-prose extraction."""
+"""CommonMark AST helpers and searchable text extraction."""
 
 from __future__ import annotations
 
@@ -135,22 +135,45 @@ def prose_between(
     tag_aliases: tuple[tuple[str, str], ...],
 ) -> Prose:
     chunks: list[str] = []
+    searchable_chunks: list[str] = []
     web_links: list[str] = []
     chunk_lines: list[int] = []
     for token in tokens:
-        if token.type != "inline" or token.map is None:
+        if token.map is None:
+            continue
+        if token.type in {"fence", "code_block"}:
+            # A code block can span several paragraph-based chunks. Include
+            # only its overlapping content lines, without fence delimiters.
+            content_start = token.map[0] + (1 if token.type == "fence" else 0)
+            code_lines = token.content.splitlines(keepends=True)
+            first = max(start_zero - content_start, 0)
+            last = min(end_zero - content_start, len(code_lines))
+            if first < last:
+                searchable_chunks.append("".join(code_lines[first:last]).rstrip("\n"))
+            continue
+        if token.type != "inline":
             continue
         if token.map[0] < start_zero or token.map[0] >= end_zero:
             continue
         parts: list[str] = []
+        searchable_parts: list[str] = []
         for child in token.children or ():
             if child.type in {"text", "softbreak", "hardbreak"}:
-                parts.append("\n" if child.type != "text" else child.content)
+                value = "\n" if child.type != "text" else child.content
+                parts.append(value)
+                searchable_parts.append(value)
+            elif child.type == "code_inline":
+                searchable_parts.append(child.content)
+                # Keep prose on either side separate for tag/link extraction.
+                parts.append(" " * len(child.content))
             elif child.type == "link_open":
                 href = child.attrGet("href")
                 if href and href.startswith(("http://", "https://")):
                     web_links.append(href)
         text = "".join(parts).strip()
+        searchable_text = "".join(searchable_parts).strip()
+        if searchable_text:
+            searchable_chunks.append(searchable_text)
         if text:
             chunks.append(text)
             chunk_lines.append(token.map[0] + 1)
@@ -182,7 +205,7 @@ def prose_between(
         for match in WIKI_RE.finditer(text)
     ]
     return Prose(
-        text=text,
+        text="\n".join(searchable_chunks).strip(),
         tags=tuple(tags),
         links=tuple(links),
         web_links=tuple(dict.fromkeys(web_links)),
