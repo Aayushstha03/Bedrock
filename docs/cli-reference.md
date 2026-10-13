@@ -136,8 +136,10 @@ pagination, and availability behavior.
 docker compose exec bedrock bedrock serve
 ```
 
-Starts the long-running health server. Compose already uses this as the
-application container's default process.
+Starts the long-running health and graph snapshot HTTP server. Compose already
+uses this as the application container's default process and publishes it at
+`http://localhost:8080` (loopback only). After code changes, run
+`docker compose restart bedrock` to load the updated routes.
 
 - `GET /health`
 - `GET /healthz`
@@ -719,6 +721,41 @@ range. The same cards also appear in a plain `bedrock search --date-from ...`
 next to daily sections and project updates.
 
 ## Network graph
+
+### HTTP snapshot and Cosmograph downloads
+
+```bash
+curl --fail http://localhost:8080/graph/snapshot -o graph.json
+curl --fail http://localhost:8080/graph/cosmograph/points.json -o points.json
+curl --fail http://localhost:8080/graph/cosmograph/links.json -o links.json
+```
+
+`GET /graph/snapshot` returns `schema_version`, `vault_id`, `nodes`, `edges`,
+and `unresolved_links`. It reads the source vault without Qdrant or embedding
+models and includes empty and isolated notes. Nodes have `id`, `type`, and
+`label`; note nodes also have `note_id`, `path`, `folder`, `note_type`, and
+`tags`. Node types are `note`, `tag`, and `missing`. Edges have `id`, `source`,
+`target`, and `type` (`link` or `tag`). Directed wikilinks collapse repeated
+references into an edge with `occurrences` (`line`, `heading`, `alias`). Each
+note connects to its inline/frontmatter tag nodes, including nested and
+unconfigured tags. Missing wikilinks produce placeholder nodes; ambiguous
+targets appear in `unresolved_links`. Markdown-style links and attachments
+are not included.
+
+The service caches the snapshot at startup and rebuilds it after debounced
+Watchdog Markdown create/modify/delete/move events or directory structural
+changes. Requests do not scan or reparse files. The usual debounce is two
+seconds, capped at ten seconds of continuous activity, plus build time.
+Rebuild failures return JSON with HTTP 503 and retry through the watcher.
+Configured directory exclusions apply.
+
+`GET /graph/cosmograph` returns flat `points` and `links` arrays from the same
+cache. The `/graph/cosmograph/points.json` and `/graph/cosmograph/links.json`
+routes download these arrays individually. Import both in Cosmograph and map
+point ID to `id`, label to `label`, and link endpoints to `source`/`target`.
+Use `type`, `folder`, or `note_type` for point colors and `degree` for size.
+Link `weight` counts wikilink occurrences (tag membership has weight 1).
+Download both after edits settle to keep the tables consistent.
 
 ### `graph export`
 

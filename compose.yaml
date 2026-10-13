@@ -25,6 +25,8 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: ${RESTART_POLICY}
+    ports:
+      - "127.0.0.1:8080:8080"
     depends_on:
       qdrant:
         condition: service_healthy

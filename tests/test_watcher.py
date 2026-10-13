@@ -117,3 +117,24 @@ def test_catch_up_indexes_once_without_any_event(tmp_path: Path) -> None:
     handler.close()
 
     assert received == [()]
+
+
+def test_directory_structure_changes_request_full_convergence(tmp_path: Path) -> None:
+    from watchdog.events import DirDeletedEvent, DirModifiedEvent, DirMovedEvent
+
+    received: list[tuple[str, ...]] = []
+    handler = MarkdownChangeHandler(settings(tmp_path), received.append, debounce_seconds=60)
+    try:
+        handler.on_any_event(FileCreatedEvent(str(tmp_path / "note.md")))
+        handler.on_any_event(DirDeletedEvent(str(tmp_path / "removed")))
+        handler.flush()
+        assert received == [()]
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+        handler.on_any_event(DirDeletedEvent(str(tmp_path / ".obsidian")))
+        handler.flush()
+        assert received == [()]
+        handler.on_any_event(DirMovedEvent(str(tmp_path / "before"), str(tmp_path / "after")))
+        handler.flush()
+        assert received == [(), ()]
+    finally:
+        handler.close()

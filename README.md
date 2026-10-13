@@ -50,6 +50,59 @@ docker compose up -d
 `.env.example` is the template, and it documents every setting.
 The default vault path points at the fixture vault, which is safe to index as-is.
 
+### Vault graph snapshot
+
+`bedrock serve` exposes `GET /graph/snapshot` on the configured HTTP host/port:
+
+```bash
+curl http://localhost:8080/graph/snapshot
+```
+
+The JSON contains `schema_version`, `vault_id`, `nodes`, `edges`, and
+`unresolved_links`. Nodes have stable `id`, `type` (`note`, `tag`, or `missing`),
+and `label` fields. Note nodes also carry `note_id`, `path`, `folder`,
+`note_type`, and `tags`, useful for coloring and filtering a graph view.
+Edges have `id`, `source`, `target`, and `type` (`link` or `tag`). Link edges
+point from the referring note to its target; repeated wikilinks share one edge
+with `occurrences` containing `line`, `heading`, and `alias`. Tag edges connect
+each note to its tag nodes, avoiding a dense mesh of shared-tag note pairs.
+
+The snapshot reads all discovered Markdown notes directly, including empty
+and isolated notes, respects configured directory exclusions, and needs no
+Qdrant or embedding models. Tags include inline and YAML frontmatter tags,
+including unconfigured and nested tags; tag spelling is case-folded without
+applying search-index tag aliases. Code examples are excluded. Wikilinks use
+the existing vault-wide title/path/alias resolver. Missing targets get placeholder
+nodes; ambiguous targets appear in `unresolved_links` without invented edges.
+Markdown-style links, attachments, and inferred similarity/date edges are not
+included. A missing or unreadable vault returns JSON with HTTP 503.
+The HTTP service keeps a snapshot in memory, builds it at startup, and rebuilds
+it only after the same debounced Watchdog Markdown create/modify/delete/move
+events used by the index watcher. Requests reuse the cached value without
+walking or reparsing the vault. Updates normally appear after the two-second
+debounce (at most ten seconds of continuous activity, plus build time).
+Directory creates, moves, and deletions also trigger full convergence, covering
+structural changes that may not emit individual Markdown events.
+The HTTP service runs its own observer using that shared watcher layer because
+the indexing watcher runs in a separate process. Failed rebuilds retry through
+the watcher and return HTTP 503 until recovery rather than serving stale success.
+The existing `bedrock graph export` remains the separate index-backed export.
+
+For [Cosmograph](https://run.cosmograph.app/), download the two flat JSON tables:
+
+- Points: `http://localhost:8080/graph/cosmograph/points.json`
+- Links: `http://localhost:8080/graph/cosmograph/links.json`
+- Combined JSON (`points` and `links` arrays): `http://localhost:8080/graph/cosmograph`
+
+Add both files in Cosmograph's Data Sources. Map point ID to `id`, point label
+to `label`, and link endpoints to `source` and `target`. Optionally color points
+by `type`, `folder`, or `note_type`, and size by `degree`. Links carry `type`
+and `weight` (wikilink occurrence count, or 1 for tag membership). Point IDs
+match the original snapshot; isolated notes remain in the points table.
+These tables rebuild alongside the cached snapshot on watcher events. The two
+file endpoints return attachment headers for browser downloads. Download both
+after edits have settled so they describe the same vault state.
+
 Build the index, then search it:
 
 ```bash

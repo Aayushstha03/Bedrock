@@ -44,6 +44,7 @@ class MarkdownChangeHandler(FileSystemEventHandler):
         # sliding debounce never delays a pending change past this ceiling.
         self.max_delay_seconds = max(max_delay_seconds, debounce_seconds)
         self._pending: set[str] = set()
+        self._full_pending = False
         self._dirty = False
         self._closed = False
         self._timer: Timer | None = None
@@ -55,12 +56,23 @@ class MarkdownChangeHandler(FileSystemEventHandler):
         self._callback_lock = Lock()
 
     def on_any_event(self, event: FileSystemEvent) -> None:
-        if event.is_directory or event.event_type not in {"created", "modified", "deleted", "moved"}:
+        if event.event_type not in {"created", "modified", "deleted", "moved"}:
             return
         paths = [event.src_path]
         destination = getattr(event, "dest_path", None)
         if destination:
             paths.append(destination)
+        if event.is_directory:
+            # A directory removal may have no individual file-delete events.
+            # Request full convergence for structural changes, but ignore the
+            # directory modification events caused by ordinary file writes.
+            if event.event_type == "modified" or not any(self._included_directory(path) for path in paths):
+                return
+            with self._lock:
+                self._full_pending = True
+                self._dirty = True
+                self._arm(self.debounce_seconds)
+            return
         accepted = [relative for path in paths if (relative := self._relative_markdown(path)) is not None]
         if not accepted:
             return
@@ -79,8 +91,9 @@ class MarkdownChangeHandler(FileSystemEventHandler):
         with self._lock:
             timer = self._timer
             dirty = self._dirty
-            paths = tuple(sorted(self._pending, key=str.casefold))
+            paths = () if self._full_pending else tuple(sorted(self._pending, key=str.casefold))
             self._pending.clear()
+            self._full_pending = False
             self._dirty = False
             self._timer = None
             self._deadline = None
@@ -114,6 +127,7 @@ class MarkdownChangeHandler(FileSystemEventHandler):
             if self._closed:
                 return
             self._pending.update(paths)
+            self._full_pending = self._full_pending or not paths
             self._dirty = True
             delay = self._retry_seconds
             self._retry_seconds = min(self._retry_seconds * 2, MAX_RETRY_SECONDS)
@@ -144,6 +158,14 @@ class MarkdownChangeHandler(FileSystemEventHandler):
         if any(part.casefold() in excluded for part in relative.parts[:-1]):
             return None
         return relative.as_posix()
+
+    def _included_directory(self, raw_path: str) -> bool:
+        try:
+            relative = Path(raw_path).resolve().relative_to(self.settings.vault_path.resolve())
+        except ValueError:
+            return False
+        excluded = {name.casefold() for name in self.settings.excluded_directories}
+        return not any(part.casefold() in excluded for part in relative.parts)
 
 
 class VaultWatcher:

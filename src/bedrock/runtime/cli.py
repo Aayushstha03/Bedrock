@@ -9,6 +9,7 @@ from dataclasses import asdict, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Event
 from typing import Any, TextIO
+from urllib.parse import urlsplit
 
 from qdrant_client import QdrantClient
 
@@ -22,6 +23,7 @@ from bedrock.parser.service import VaultParser
 from bedrock.parser.watcher import VaultWatcher
 from bedrock.runtime.health import encode_report, health_report, llm_health
 from bedrock.runtime.models import prefetch, readiness
+from bedrock.vault.graph import GraphSnapshotCache
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -33,9 +35,33 @@ def _print(data: object, *, file: TextIO | None = None) -> None:
     print(json.dumps(data, indent=2, sort_keys=True, default=str), file=file or sys.stdout)
 
 
-def _handler(settings: Settings) -> type[BaseHTTPRequestHandler]:
+def _handler(settings: Settings, snapshots: GraphSnapshotCache | None = None) -> type[BaseHTTPRequestHandler]:
+    snapshots = snapshots or GraphSnapshotCache(settings)
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            path = urlsplit(self.path).path
+            graph_routes = {
+                "/graph/snapshot",
+                "/graph/cosmograph",
+                "/graph/cosmograph/points.json",
+                "/graph/cosmograph/links.json",
+            }
+            if path in graph_routes:
+                try:
+                    if path == "/graph/snapshot":
+                        snapshot = snapshots.get()
+                    else:
+                        snapshot = snapshots.get_cosmograph()
+                except (OSError, ValueError):
+                    self._json(503, {"error": "vault snapshot unavailable"})
+                    return
+                filename = None
+                if path.endswith(".json"):
+                    filename = path.rsplit("/", 1)[-1]
+                    snapshot = snapshot[filename.removesuffix(".json")]
+                self._json(200, snapshot, filename=filename)
+                return
             if self.path not in {"/health", "/healthz"}:
                 self.send_error(404)
                 return
@@ -44,6 +70,17 @@ def _handler(settings: Settings) -> type[BaseHTTPRequestHandler]:
             self.send_response(200 if report["ready"] else 503)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _json(self, status: int, data: object, *, filename: str | None = None) -> None:
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            if filename is not None:
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.end_headers()
             self.wfile.write(body)
 
@@ -56,7 +93,7 @@ def _handler(settings: Settings) -> type[BaseHTTPRequestHandler]:
 def build_parser() -> argparse.ArgumentParser:
     parser = JsonArgumentParser(prog="bedrock")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("serve", help="run the application health service")
+    commands.add_parser("serve", help="run the health and graph snapshot HTTP service")
     commands.add_parser("health", help="check Qdrant, index, models, vault, and configuration")
     commands.add_parser("diagnose", help="emit combined health and index diagnostics")
     mcp = commands.add_parser("mcp", help="run the read-only Bedrock MCP server")
@@ -191,8 +228,14 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
             vault.client.close()
         return 0
     if args.command == "serve":
-        server = ThreadingHTTPServer((settings.host, settings.port), _handler(settings))
-        server.serve_forever()
+        snapshots = GraphSnapshotCache(settings)
+        server = ThreadingHTTPServer((settings.host, settings.port), _handler(settings, snapshots))
+        try:
+            with VaultWatcher(settings, snapshots.rebuild) as watcher:
+                watcher.catch_up()
+                server.serve_forever()
+        finally:
+            server.server_close()
         return 0
     if args.command == "health":
         report = health_report(settings, include_llm=True)
