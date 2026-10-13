@@ -1,0 +1,13 @@
+# Optional: docker compose -f compose.yaml -f compose.odysseus.yaml up -d mcp
+# Requires Odysseus's Compose stack/network to exist.
+services:
+  mcp:
+    networks:
+      odysseus:
+        aliases:
+          - mcp
+
+networks:
+  odysseus:
+    external: true
+    name: odysseus_default

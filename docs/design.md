@@ -16,6 +16,7 @@ One Docker Compose project runs everything:
 | --- | --- |
 | `zenith` | Parse, index, embed, query, answer. Runs the health service. |
 | `watch` | Watchdog watcher. Indexes each debounced change batch. |
+| `mcp` | Read-only, agent-independent vault tools over MCP. |
 | `qdrant` | All derived storage and retrieval. Dashboard on `127.0.0.1:6333`. |
 
 Two persistent volumes hold the Qdrant data and the model cache. The vault is a
@@ -41,15 +42,16 @@ types exist:
 
 | Entry type | What it is |
 | --- | --- |
-| `daily_section` | A section inside a dated note under the log root. |
+| `daily_section` | A section inside a daily note, recognized by an exact `YYYY-MM-DD` filename anywhere in the vault or by the configured log root. |
 | `project_update` | Content under a `YYYY-MM-DD` heading in any standard note. |
 | `freeform_section` | An ordinary heading-delimited section. |
 | `freeform_chunk` | Loose or oversized content, split on paragraph boundaries. |
 | `kanban_card` | One card in one Kanban column. |
 
 Only two first-level directories carry meaning: the log root and the Kanban
-root, both configurable. Every other Markdown file is a standard note, wherever
-it sits and however it is nested. Directory names like `projects`, `work`, or
+root, both configurable. Outside the Kanban root, an exact `YYYY-MM-DD`
+filename also identifies a daily note. Remaining Markdown files are standard
+notes, wherever they sit and however they are nested. Directory names like `projects`, `work`, or
 `archive` classify nothing.
 
 Whole-note identity travels in every point payload, so a result always carries
@@ -271,7 +273,12 @@ Two cases cannot be divided: a single paragraph larger than the window, and a
 Kanban card, which is one atomic point. Both emit a `truncated_embedding_input`
 warning instead of losing text silently.
 
-## 9. Answering a question
+## 9. Legacy answering layer
+
+Zenith Vault v1 exposes its agent-independent tool contract through MCP; see
+[mcp.md](mcp.md). It returns canonical identities and source metadata, leaving
+citation presentation to the consuming application. The following answering
+layer remains for migration to the separate Zenith application.
 
 `zenith ask` puts a model in front of the index. The model does not compile a
 query plan; it calls tools, and the trace of what it called is part of the

@@ -181,6 +181,9 @@ class Zenith:
 
     def _match_note(self, path_or_title: str) -> ParsedNote:
         notes = self._parsed_notes()
+        id_matches = [note for note in notes if note.note_id == path_or_title]
+        if id_matches:
+            return id_matches[0]
         needle = _key(path_or_title)
         path_matches = [
             note
@@ -247,12 +250,14 @@ class Zenith:
         link_depth: int = 1,
         nearby_days: int = 3,
         max_notes: int = 5,
+        max_items: int = 30,
     ) -> ContextExpansion:
         return ContextExpander(self.retriever).expand(
             entry_id,
             link_depth=link_depth,
             nearby_days=nearby_days,
             max_notes=max_notes,
+            max_items=max_items,
         )
 
     def get_index_warnings(
@@ -276,7 +281,17 @@ class Zenith:
         grouped: dict[str, list[SearchResult]] = {}
         for card in cards:
             grouped.setdefault(card.note_id, []).append(card)
-        boards = [_board(group) for group in grouped.values()]
+        boards = [
+            KanbanBoard(
+                note.note_id,
+                note.path,
+                note.title,
+                tuple((note.metadata or {}).get("columns", ())),
+                _board(grouped[note.note_id]).cards if note.note_id in grouped else (),
+            )
+            for note in self._parsed_notes()
+            if note.note_type is NoteType.KANBAN
+        ]
         return tuple(sorted(boards, key=lambda board: (board.path, board.note_id)))
 
     def get_kanban_board(self, board_name_or_path: str) -> KanbanBoard:
@@ -287,7 +302,11 @@ class Zenith:
             for board in boards
             if needle in {_key(board.path), _key(PurePosixPath(board.path).with_suffix("").as_posix())}
         ]
-        matches = path_matches or [board for board in boards if _key(board.title) == needle]
+        matches = (
+            [board for board in boards if board.note_id == board_name_or_path]
+            or path_matches
+            or [board for board in boards if _key(board.title) == needle]
+        )
         if not matches:
             raise LookupError(f"Kanban board not found: {board_name_or_path}")
         if len(matches) > 1:
@@ -336,7 +355,7 @@ class Zenith:
         limit: int = 10,
         offset: int = 0,
     ) -> Page[SearchResult]:
-        board_name = self.get_kanban_board(board).title if board is not None else None
+        board_id = self.get_kanban_board(board).note_id if board is not None else None
         selected_mode = _mode(None, exact_text, None, semantic_text)
         return self.retriever.search_page(
             QueryPlan(
@@ -347,7 +366,7 @@ class Zenith:
                 entry_types=(EntryType.KANBAN_CARD,),
                 literal_text=exact_text,
                 semantic_text=semantic_text,
-                kanban_board=board_name,
+                note_id=board_id,
                 kanban_columns=columns,
                 kanban_statuses=statuses,
                 kanban_checked=checked,

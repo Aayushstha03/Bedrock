@@ -346,6 +346,8 @@ class ContextExpansion:
     items: tuple[ContextItem, ...]
     diagnostics: tuple[TraversalDiagnostic, ...] = ()
     inspected_note_ids: tuple[str, ...] = ()
+    truncated: bool = False
+    budget_reasons: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))

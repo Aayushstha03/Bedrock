@@ -101,7 +101,7 @@ class FakeRetriever:
             "backlink": (self.backlink,),
         }.get(note_id, ())
 
-    def search(self, plan):
+    def metadata_all(self, plan):
         assert plan.note_id == "project"
         assert plan.entry_types == (EntryType.PROJECT_UPDATE,)
         assert (plan.date_from, plan.date_to) == ("2026-08-17", "2026-08-23")
@@ -153,3 +153,14 @@ def test_zero_depth_returns_only_direct_evidence() -> None:
     expansion = ContextExpander(FakeRetriever()).expand("daily-entry", link_depth=0)
     assert [item.result.entry_id for item in expansion.items] == ["daily-entry"]
     assert expansion.inspected_note_ids == ()
+
+
+def test_context_caps_total_items_and_reports_history_omissions() -> None:
+    expansion = ContextExpander(FakeRetriever()).expand("daily-entry", max_items=2)
+    assert len(expansion.items) == 2
+    assert expansion.truncated and "max_items" in expansion.budget_reasons
+
+
+def test_context_reports_unvisited_notes() -> None:
+    expansion = ContextExpander(FakeRetriever()).expand("daily-entry", max_notes=1)
+    assert expansion.truncated and "max_notes" in expansion.budget_reasons

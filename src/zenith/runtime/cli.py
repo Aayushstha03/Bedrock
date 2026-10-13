@@ -59,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("serve", help="run the application health service")
     commands.add_parser("health", help="check Qdrant, index, models, vault, and configuration")
     commands.add_parser("diagnose", help="emit combined health and index diagnostics")
+    mcp = commands.add_parser("mcp", help="run the read-only Zenith Vault MCP server")
+    mcp.add_argument("--transport", choices=("stdio", "streamable-http"), default="stdio")
+    mcp.add_argument("--host", default="127.0.0.1")
+    mcp.add_argument("--port", type=int, default=8000)
 
     parse = commands.add_parser("parse", help="parse the configured vault without indexing")
     parse.add_argument("paths", nargs="*", help="optional vault-relative Markdown paths")
@@ -174,6 +178,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run(args: argparse.Namespace, settings: Settings) -> int:
+    if args.command == "mcp":
+        from zenith.vault.mcp import build_server
+        from zenith.vault.service import VaultTools
+
+        if not 1 <= args.port <= 65535:
+            raise ValueError("MCP port must be 1-65535")
+        vault = Zenith(settings)
+        try:
+            build_server(VaultTools(vault), host=args.host, port=args.port).run(transport=args.transport)
+        finally:
+            vault.client.close()
+        return 0
     if args.command == "serve":
         server = ThreadingHTTPServer((settings.host, settings.port), _handler(settings))
         server.serve_forever()

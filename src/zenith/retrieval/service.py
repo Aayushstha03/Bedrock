@@ -86,7 +86,15 @@ class Retriever:
         return tuple(_result(record.payload, RetrievalMode.METADATA) for record in records)
 
     def get_backlinks(self, note_id: str) -> tuple[SearchResult, ...]:
-        return self.get_backlinks_page(note_id).items
+        filter_ = models.Filter(
+            must=[
+                vault_condition(self.vault_id),
+                models.FieldCondition(key="outgoing_note_ids", match=models.MatchValue(value=note_id)),
+            ]
+        )
+        records = self._scroll_all(filter_)
+        records.sort(key=_by_position)
+        return tuple(_result(record.payload, RetrievalMode.METADATA) for record in records)
 
     def get_backlinks_page(self, note_id: str, *, limit: int = 10, offset: int = 0) -> Page[SearchResult]:
         filter_ = models.Filter(

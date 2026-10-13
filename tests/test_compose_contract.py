@@ -111,3 +111,16 @@ def test_runtime_has_no_sqlite_or_cloud_inference_dependency() -> None:
     assert "sqlite" not in runtime
     assert "fts5" not in runtime
     assert "cloud_inference" not in runtime
+
+
+def test_mcp_service_reuses_read_only_vault_and_publishes_loopback() -> None:
+    import yaml
+
+    services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
+    mcp = services["mcp"]
+    assert mcp["environment"] == services["zenith"]["environment"]
+    assert mcp["volumes"] == services["zenith"]["volumes"]
+    assert "127.0.0.1" in mcp["ports"][0]
+    assert "streamable-http" in mcp["command"]
+    assert "-T" not in mcp["command"]
+    assert "zenith-internal" in mcp["networks"] and "llm" not in mcp["networks"]

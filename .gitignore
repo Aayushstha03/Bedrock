@@ -18,3 +18,7 @@ wheels/
 
 # Local configuration
 .env
+
+# Local planning and temporary notes
+/todo.md
+/known-issues.local.md

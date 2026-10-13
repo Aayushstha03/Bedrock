@@ -50,7 +50,13 @@ class IndexRebuilder:
         self.settings = settings
         self.vault_id = vault_id
         self.client = client or QdrantClient(url=settings.qdrant_url)
-        self.encoders = encoders or LocalEncoders(settings)
+        self._encoders = encoders
+
+    @property
+    def encoders(self) -> Any:
+        if self._encoders is None:
+            self._encoders = LocalEncoders(self.settings)
+        return self._encoders
 
     def rebuild(self) -> RebuildReport:
         notes = resolve_links(VaultParser(self.settings, self.vault_id).parse_vault())

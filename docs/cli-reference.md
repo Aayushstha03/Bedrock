@@ -9,8 +9,8 @@ docker compose exec zenith zenith COMMAND
 
 The container runs the working tree, which `compose.yaml` binds at `/app/src`,
 so a command reflects an edit without a rebuild. `zenith serve` and
-`zenith watch` are already running and keep their own code until
-`docker compose restart zenith watch`.
+`zenith watch` and `zenith mcp` are already running and keep their own code
+until `docker compose restart zenith watch mcp`.
 
 All normal command results are deterministic, pretty-printed JSON. Property
 names are sorted so unchanged commands are easy to diff.
@@ -115,6 +115,18 @@ Canonical statuses are `todo`, `doing`, and `complete`. A custom column can
 have a `null` status.
 
 ## Service and diagnostics
+
+### `mcp`
+
+```bash
+docker compose exec -T zenith zenith mcp
+# Or the Compose mcp service at http://127.0.0.1:8000/mcp
+```
+
+Runs the read-only Zenith Vault MCP server. Defaults to stdio; use
+`--transport streamable-http`, `--host`, and `--port` for HTTP.
+`zenith-vault` is an alias for the existing CLI. See [mcp.md](mcp.md) for the
+version-one tool contracts, client setup, pagination, and availability behavior.
 
 ### `serve`
 

@@ -32,7 +32,7 @@ services:
     # Enable "Serve on Local Network" in LM Studio so it binds beyond loopback.
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    environment:
+    environment: &vault-environment
       ZENITH_QDRANT_URL: http://qdrant:6333
       ZENITH_VAULT_PATH: /vault
       ZENITH_MODEL_CACHE_PATH: /models
@@ -49,7 +49,7 @@ services:
       ZENITH_LLM_API_KEY: ${ZENITH_LLM_API_KEY}
       ZENITH_LLM_TIMEOUT: ${ZENITH_LLM_TIMEOUT}
       ZENITH_LLM_TEMPERATURE: ${ZENITH_LLM_TEMPERATURE}
-    volumes:
+    volumes: &vault-volumes
       # The working tree, not the copy baked into the image. `PYTHONPATH` in
       # the Dockerfile puts it ahead of site-packages, so `docker compose up`
       # runs the code as it is on disk. Read-only: a container writing here as
@@ -74,6 +74,29 @@ services:
     networks:
       - zenith-internal
       - llm
+
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: ${RESTART_POLICY}
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment: *vault-environment
+    volumes: *vault-volumes
+    command: ["zenith", "mcp", "--transport", "streamable-http", "--host", "0.0.0.0"]
+    ports:
+      - "${ZENITH_MCP_BIND_ADDRESS:-127.0.0.1}:${ZENITH_MCP_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), timeout=2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - zenith-internal
+      - dashboard
 
   # The watcher is a second process, not a second copy of the service. It
   # indexes debounced vault changes and converges the whole vault once at

@@ -8,6 +8,7 @@ COPY pyproject.toml README.md ./
 RUN python -m pip install --prefix=/install \
     fastembed==0.7.3 \
     markdown-it-py==4.0.0 \
+    mcp==1.30.0 \
     "pydantic-ai-slim[openai]==2.35.0" \
     pyyaml==6.0.3 \
     qdrant-client==1.15.1 \

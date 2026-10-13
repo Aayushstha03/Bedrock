@@ -40,9 +40,13 @@ class ContextExpander:
         link_depth: int = 1,
         nearby_days: int = 3,
         max_notes: int = 5,
+        max_items: int = 30,
         mode: RetrievalMode = RetrievalMode.HYBRID,
     ) -> ContextExpansion:
         _validate_budgets(link_depth, nearby_days, max_notes)
+        if not 1 <= max_items <= 100:
+            raise ValueError("max_items must be between 1 and 100")
+        reasons: set[str] = set()
         source = self.retriever.get_entry(entry_id)
         if source is None:
             raise LookupError(f"entry not found: {entry_id}")
@@ -64,7 +68,7 @@ class ContextExpander:
         seen_items = {source.entry_id}
         anchor = _evidence_date(source)
 
-        while queue and len(inspected) < max_notes:
+        while queue and len(inspected) < max_notes and len(items) < max_items:
             candidate, depth = queue.popleft()
             if candidate.note_id in visited or depth > link_depth:
                 continue
@@ -100,6 +104,9 @@ class ContextExpander:
                 for history in self._nearby_history(candidate.note_id, anchor, nearby_days):
                     if history.entry_id in seen_items:
                         continue
+                    if len(items) >= max_items:
+                        reasons.add("max_items")
+                        break
                     items.append(
                         ContextItem(
                             result=history,
@@ -115,11 +122,16 @@ class ContextExpander:
                 diagnostics.extend(next_diagnostics)
                 queue.extend((next_candidate, depth + 1) for next_candidate in next_candidates)
 
+        if any(candidate.note_id not in visited and depth <= link_depth for candidate, depth in queue):
+            reasons.add("max_items" if len(items) >= max_items else "max_notes")
+
         return ContextExpansion(
             source_entry_id=entry_id,
             items=tuple(items),
             diagnostics=tuple(dict.fromkeys(diagnostics)),
             inspected_note_ids=tuple(inspected),
+            truncated=bool(reasons),
+            budget_reasons=tuple(sorted(reasons)),
         )
 
     def _candidates(self, result: SearchResult) -> tuple[tuple[_Candidate, ...], list[TraversalDiagnostic]]:
@@ -176,14 +188,13 @@ class ContextExpander:
     def _nearby_history(self, note_id: str, anchor: date, nearby_days: int) -> tuple[SearchResult, ...]:
         start = (anchor - timedelta(days=nearby_days)).isoformat()
         end = (anchor + timedelta(days=nearby_days)).isoformat()
-        results = self.retriever.search(
+        results = self.retriever.metadata_all(
             QueryPlan(
                 mode=RetrievalMode.METADATA,
                 note_id=note_id,
                 date_from=start,
                 date_to=end,
                 entry_types=(EntryType.PROJECT_UPDATE,),
-                limit=10_000,
             )
         )
         return tuple(sorted(results, key=lambda item: (_distance(item, anchor), item.start_line)))
