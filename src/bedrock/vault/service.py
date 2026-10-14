@@ -20,6 +20,7 @@ from bedrock.core.contracts import (
     RetrievalMode,
     SearchResult,
 )
+from bedrock.core.tags import TAG_DESCRIPTIONS
 from bedrock.index.diagnostics import inspect_collection
 from bedrock.index.links import resolve_links
 from bedrock.index.qdrant import scroll_all, vault_condition
@@ -35,6 +36,8 @@ from bedrock.vault.contracts import (
     NotePage,
     NoteRead,
     RelatedEvidence,
+    TagInfo,
+    TagList,
     Task,
     VaultStatus,
 )
@@ -53,6 +56,28 @@ class IndexUnavailable(RuntimeError):
 class VaultTools:
     def __init__(self, vault: Bedrock) -> None:
         self.vault = vault
+
+    def list_tags(self) -> TagList:
+        """List configured search tags with meanings and accepted aliases.
+
+        Use this registry when choosing tags_all/tags_any for search_notes or
+        tags_all for find_tasks. Names omit #. Ask the user which tag they mean
+        when their intent is ambiguous; do not require a tag for every search.
+        These are allowed tags, not usage counts or proof of indexed content.
+        Only inline prose supplies search tags; code/frontmatter do not.
+        Works without Qdrant or an embedding model.
+        """
+        settings = self.vault.settings
+        return TagList(
+            items=[
+                TagInfo(
+                    name=name,
+                    description=TAG_DESCRIPTIONS.get(name),
+                    aliases=[alias for alias, target in settings.tag_aliases if target == name],
+                )
+                for name in dict.fromkeys(tag.casefold() for tag in settings.known_tags)
+            ]
+        )
 
     def _require_index(self) -> None:
         try:
@@ -93,7 +118,7 @@ class VaultTools:
         are inclusive YYYY-MM-DD and match explicit dates or overlapping project
         intervals (entry_date through entry_date_end), never file timestamps.
         tags_all requires every tag; tags_any requires at least one. Use curated
-        lowercase tag names without #; code/frontmatter do not supply tag metadata.
+        lowercase tag names from list_tags without #; code/frontmatter do not supply tag metadata.
 
         Results are entries, not whole notes. Excerpts stop at 1,200 characters;
         text_truncated means read_note may be needed to see relevant text later
@@ -485,6 +510,7 @@ class VaultTools:
 
 
 TOOL_NAMES = (
+    "list_tags",
     "search_notes",
     "list_notes",
     "read_note",

@@ -119,3 +119,13 @@ class VaultStatus(BaseModel):
     watcher_state: Literal["unknown"] = "unknown"
     pending_entries: int | None = None
     errors: list[str] = Field(default_factory=list)
+
+
+class TagInfo(BaseModel):
+    name: str
+    description: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+
+
+class TagList(BaseModel):
+    items: list[TagInfo]

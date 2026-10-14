@@ -58,6 +58,7 @@ rules also appear in individual tool descriptions.
 
 | Tool | Purpose | Important arguments |
 | --- | --- | --- |
+| `list_tags` | Discover configured search tags, meanings, and aliases; no index required | none |
 | `search_notes` | Search or browse indexed entries | `query`, `mode`, `note`, `section`, `entry_types`, dates, `tags_all`, `tags_any` |
 | `list_notes` | Discover notes, including empty ones | `query` (title/path substring), `path_prefix`, `note_type` |
 | `read_note` | Read original Markdown in bounded pages | `note`, `start_line`, `line_count`, `char_offset`, `expected_hash` |
@@ -164,3 +165,8 @@ recreating this service to preserve the network connection.
 
 Existing indexes require `bedrock index rebuild` when upgrading to date-range
 support, because `entry_date_end` adds a required payload index.
+
+`list_tags` returns the active `BEDROCK_KNOWN_TAGS` registry, not tags observed in
+the index. Zenith and other clients can use its descriptions to select filters
+or clarify ambiguous intent with the user. Custom configured tags are included
+with a null description if Bedrock has no built-in meaning for them.

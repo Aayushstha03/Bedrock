@@ -164,6 +164,7 @@ def test_all_tools_through_real_mcp_session_and_error_results(tools):
             assert not page.isError
             source = page.structuredContent["items"][0]
             requests = {
+                "list_tags": {},
                 "list_notes": {"query": "News"},
                 "read_note": {"note": source["note_id"]},
                 "find_backlinks": {"note": source["path"]},
@@ -246,3 +247,21 @@ def test_context_diagnostics_are_bounded_and_disclose_omissions(tools):
     result = tools.expand_context(entry.entry_id)
     assert len(result.unresolved_links) == 20
     assert result.truncated and "max_diagnostics" in result.budget_reasons
+
+
+def test_tag_registry_uses_active_settings_without_index():
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from bedrock.core.config import Settings
+
+    settings = Settings.from_env()
+    settings = replace(
+        settings, known_tags=("project_idea", "journal", "custom"), tag_aliases=(("journaling", "journal"),)
+    )
+    service = VaultTools(SimpleNamespace(settings=settings))
+    tags = service.list_tags().items
+    assert [tag.name for tag in tags] == ["project_idea", "journal", "custom"]
+    assert tags[0].description and "scoping" in tags[0].description
+    assert tags[1].aliases == ["journaling"]
+    assert tags[2].description is None

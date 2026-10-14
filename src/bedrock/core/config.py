@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from bedrock.core.tags import DEFAULT_KNOWN_TAGS
+
 DENSE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 SPARSE_MODEL = "Qdrant/bm25"
 
@@ -103,7 +105,7 @@ class Settings:
     log_root: str = "logs"
     kanban_root: str = "kanban"
     excluded_directories: tuple[str, ...] = (".git", ".obsidian", ".trash")
-    known_tags: tuple[str, ...] = ("journal", "recipe", "work")
+    known_tags: tuple[str, ...] = DEFAULT_KNOWN_TAGS
     tag_aliases: tuple[tuple[str, str], ...] = (("journaling", "journal"), ("recipes", "recipe"))
     dense_token_window: int = DENSE_TOKEN_WINDOW
     llm_base_url: str = LLM_BASE_URL
@@ -126,7 +128,7 @@ class Settings:
             log_root=os.getenv("BEDROCK_LOG_ROOT", "logs").strip("/"),
             kanban_root=os.getenv("BEDROCK_KANBAN_ROOT", "kanban").strip("/"),
             excluded_directories=_csv("BEDROCK_EXCLUDED_DIRECTORIES", ".git,.obsidian,.trash"),
-            known_tags=_csv("BEDROCK_KNOWN_TAGS", "journal,recipe,work"),
+            known_tags=_csv("BEDROCK_KNOWN_TAGS", ",".join(DEFAULT_KNOWN_TAGS)),
             tag_aliases=_aliases("BEDROCK_TAG_ALIASES", "journaling:journal,recipes:recipe"),
             dense_token_window=_positive_int("BEDROCK_DENSE_TOKEN_WINDOW", DENSE_TOKEN_WINDOW),
             llm_base_url=os.getenv("BEDROCK_LLM_BASE_URL", LLM_BASE_URL).rstrip("/"),

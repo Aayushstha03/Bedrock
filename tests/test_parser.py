@@ -139,3 +139,19 @@ def test_all_source_ranges_are_valid_for_the_fixture_vault() -> None:
         line_count = len((VAULT / note.path).read_text().splitlines())
         for entry in note.entries:
             assert 1 <= entry.source.start_line <= entry.source.end_line <= line_count
+
+
+def test_default_tags_include_user_vocabulary_but_not_section_labels(tmp_path):
+    from dataclasses import replace
+
+    from bedrock.core.tags import DEFAULT_KNOWN_TAGS
+
+    settings = replace(parser().settings, vault_path=tmp_path)
+    (tmp_path / "Tags.md").write_text(
+        "## life\n\n" + " ".join(f"#{tag}" for tag in DEFAULT_KNOWN_TAGS)
+        + "\n\n## status\n\n#unconfigured\n"
+    )
+    note = VaultParser(settings).parse_vault()[0]
+    tags = {tag for entry in note.entries for tag in entry.tags}
+    assert tags == set(DEFAULT_KNOWN_TAGS)
+    assert not tags & {"life", "status", "unconfigured"}
