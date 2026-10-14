@@ -1,256 +1,204 @@
 # Bedrock
 
-*Work in progress. I am building it as I go, and it is just getting started.*
+A local-first Markdown knowledge layer for personal agents. Bedrock makes
+journals, project logs, freeform notes, and Kanban cards searchable together,
+with source locations that let you inspect the evidence behind each result.
 
-## Why
+Built as the vault layer for **Zenith**, Bedrock can also run independently
+through its CLI, Python API, or read-only MCP server. Markdown remains the
+source of truth; Qdrant holds a rebuildable derived index. Parsing, indexing,
+search, and the watcher need no chat model.
 
-I work on many projects at the same time. AI makes each one move fast. I test an
-idea, build it, check the result against the last attempt, and make a decision.
-Some decisions are right. Some are wrong. There are many of them, and they come
-quickly.
+*Work in progress. The knowledge layer is usable today; Zenith's wider
+assistant, GUI, and voice experience are separate work.*
 
-So I take notes. I write a journal entry each day, a log for each experiment, a
-card for each task, and a record of each decision and its reason. The notes work
-well when I write them. They work badly when I must find them again. The
-information is in the vault, but it takes a long time to open each file, read
-each heading, and remember which day held the answer.
+For the full technical breakdown, read the [architecture and design](docs/design.md).
+For integration details, use the [MCP guide](docs/mcp.md) or
+[CLI/API reference](docs/cli-reference.md).
 
-Bedrock is the tool for that second part. It makes the lookup fast, simple, and
-one step. I ask a question in the words I remember, and Bedrock gives me the
-entries I wrote.
+## Quickstart
 
-It is also one tool for all of it. My journals, my Kanban boards, my project
-updates, and my freeform logs are different shapes of Markdown, but they hold
-one history. Bedrock reads all of them, indexes each entry the same way, and
-searches them together.
-
-## What it is
-
-A local-first search index for a Markdown vault. The Markdown stays the source
-of truth and is mounted read-only. Qdrant holds the derived index and nothing
-else, so the whole index can be thrown away and rebuilt from the notes.
-
-Bedrock cuts notes into entries — daily sections, dated project updates,
-freeform sections, and Kanban cards — and indexes each one with a dense vector,
-a BM25 sparse vector, and a payload carrying its path, heading path, dates, and
-line range. Search it by metadata, exact phrase, keyword, meaning, or a hybrid
-of the last two. Expose those entries through a read-only MCP server so any
-MCP-compatible agent can search and read the vault. The indexer and watcher need no chat model.
-
-
-## Start it
+Requires Docker with Docker Compose. Run these commands from the repository root:
 
 ```bash
-cp .env.example .env          # then set BEDROCK_VAULT_PATH to your vault
+cp .env.example .env
+```
+
+Set `BEDROCK_VAULT_PATH` in `.env` to the host path of your Markdown vault.
+The default points to the repository's fixture vault, which you can use to try
+Bedrock first. [.env.example](.env.example) documents the other settings.
+
+```bash
 docker compose build
 docker compose run --rm model-prefetch
 docker compose up -d
-```
-
-`.env.example` is the template, and it documents every setting.
-The default vault path points at the fixture vault, which is safe to index as-is.
-
-### Vault graph snapshot
-
-`bedrock serve` exposes `GET /graph/snapshot` on the configured HTTP host/port:
-
-```bash
-curl http://localhost:8080/graph/snapshot
-```
-
-The JSON contains `schema_version`, `vault_id`, `nodes`, `edges`, and
-`unresolved_links`. Nodes have stable `id`, `type` (`note`, `tag`, or `missing`),
-and `label` fields. Note nodes also carry `note_id`, `path`, `folder`,
-`note_type`, and `tags`, useful for coloring and filtering a graph view.
-Edges have `id`, `source`, `target`, and `type` (`link` or `tag`). Link edges
-point from the referring note to its target; repeated wikilinks share one edge
-with `occurrences` containing `line`, `heading`, and `alias`. Tag edges connect
-each note to its tag nodes, avoiding a dense mesh of shared-tag note pairs.
-
-The snapshot reads all discovered Markdown notes directly, including empty
-and isolated notes, respects configured directory exclusions, and needs no
-Qdrant or embedding models. Tags include inline and YAML frontmatter tags,
-including unconfigured and nested tags; tag spelling is case-folded without
-applying search-index tag aliases. Code examples are excluded. Wikilinks use
-the existing vault-wide title/path/alias resolver. Missing targets get placeholder
-nodes; ambiguous targets appear in `unresolved_links` without invented edges.
-Markdown-style links, attachments, and inferred similarity/date edges are not
-included. A missing or unreadable vault returns JSON with HTTP 503.
-The HTTP service keeps a snapshot in memory, builds it at startup, and rebuilds
-it only after the same debounced Watchdog Markdown create/modify/delete/move
-events used by the index watcher. Requests reuse the cached value without
-walking or reparsing the vault. Updates normally appear after the two-second
-debounce (at most ten seconds of continuous activity, plus build time).
-Directory creates, moves, and deletions also trigger full convergence, covering
-structural changes that may not emit individual Markdown events.
-The HTTP service runs its own observer using that shared watcher layer because
-the indexing watcher runs in a separate process. Failed rebuilds retry through
-the watcher and return HTTP 503 until recovery rather than serving stale success.
-The existing `bedrock graph export` remains the separate index-backed export.
-
-All graph HTTP routes return a content-derived `ETag`. Store that header and
-send it as `If-None-Match` on subsequent GET requests. An unchanged response
-returns HTTP 304 with no body; retain the previous data and skip rerendering.
-Changed responses return HTTP 200 with fresh JSON and a new ETag. JSON bytes
-and ETags are cached at rebuild time, so polling does not reserialize or hash
-the graph. ETags belong to each response representation; edits that leave its
-JSON unchanged retain its ETag. `Cache-Control: private, no-cache` allows
-private caching while requiring revalidation before reuse.
-
-### Live change notifications
-
-Connect to `http://localhost:8080/events` with Server-Sent Events (SSE):
-
-```javascript
-const events = new EventSource("http://localhost:8080/events");
-events.addEventListener("notes.changed", event => {
-  const { paths, deleted_paths, rescan } = JSON.parse(event.data);
-  // Refresh an open note if its path changed/deleted, or rescan is true.
-});
-events.addEventListener("graph.updated", event => {
-  const { etag } = JSON.parse(event.data);
-  // Revalidate /graph/snapshot with If-None-Match; rerender on HTTP 200.
-});
-events.onopen = () => {
-  // On every connection/reconnection, revalidate graph and refresh open note.
-};
-// Call events.close() when the GUI no longer needs notifications.
-```
-
-`notes.changed` follows a debounced watcher batch and includes vault-relative
-`paths`, `deleted_paths`, and a process-local `sequence`. It fires for prose
-edits even when the graph stays unchanged. Renames include the new path and
-deleted old path. `rescan: true` requests a full refresh for structural changes
-and startup catch-up. `graph.updated` includes the `/graph/snapshot` `etag` and
-`sequence`, and fires only after a changed graph is readable. These do not
-indicate search-index readiness. Notifications are ephemeral; there is no
-replay of `Last-Event-ID`, and sequences reset on server restart. Heartbeats
-keep the connection active; slow clients are disconnected to reconnect and
-resync. Use HTTP/MCP reads as the source of current state. The HTTP server's
-watcher publishes to an internal bus, separately consumed by the graph cache
-and SSE clients; Zenith does not need a filesystem watcher. The existing
-indexing watcher continues independently.
-
-For [Cosmograph](https://run.cosmograph.app/), download the two flat JSON tables:
-
-- Points: `http://localhost:8080/graph/cosmograph/points.json`
-- Links: `http://localhost:8080/graph/cosmograph/links.json`
-- Combined JSON (`points` and `links` arrays): `http://localhost:8080/graph/cosmograph`
-
-Add both files in Cosmograph's Data Sources. Map point ID to `id`, point label
-to `label`, and link endpoints to `source` and `target`. Optionally color points
-by `type`, `folder`, or `note_type`, and size by `degree`. Links carry `type`
-and `weight` (wikilink occurrence count, or 1 for tag membership). Point IDs
-match the original snapshot; isolated notes remain in the points table.
-These tables rebuild alongside the cached snapshot on watcher events. The two
-file endpoints return attachment headers for browser downloads. Download both
-after edits have settled so they describe the same vault state.
-
-Build the index, then search it:
-
-```bash
 docker compose exec bedrock bedrock index rebuild
 docker compose exec bedrock bedrock search "pipeline clustering" --mode hybrid
 ```
 
-The watcher runs as its own service and reindexes each saved file, so the index
-follows the vault without another command.
+Model prefetching requires network access. After models are cached, normal
+indexing and search can run offline. The vault is mounted read-only. Persistent
+volumes hold Qdrant data and the model cache.
 
-The MCP endpoint is **http://127.0.0.1:8000/mcp** (Streamable HTTP).
-See [docs/mcp.md](docs/mcp.md) for client configuration, the eight tools, and
-complete note reading. Citation presentation belongs to the consuming agent.
+The `watch` service keeps the index current after saves and catches up on
+startup. The explicit rebuild above establishes a fresh index for first use.
 
-The legacy `bedrock ask` command needs LM Studio running on the host with
-"Serve on Local Network" enabled. Nothing else does. Parsing, indexing, and the watcher all run with LM
-Studio closed, so the index never competes with a chat model for VRAM.
+| Local endpoint | Purpose |
+| --- | --- |
+| `http://127.0.0.1:8000/mcp` | Read-only MCP over Streamable HTTP |
+| `http://localhost:8080/healthz` | Application health |
+| `http://localhost:8080/graph/snapshot` | Cached source-backed vault graph |
+| `http://localhost:8080/events` | Live note/graph notifications over SSE |
+| `http://localhost:6333/dashboard` | Qdrant dashboard with default configuration |
 
-The Qdrant dashboard is at <http://localhost:6333/dashboard>.
+MCP and Qdrant addresses/ports are configurable. The MCP endpoint has no
+authentication and is intended for local clients; it is published on loopback
+by default. See [client setup and transport details](docs/mcp.md).
 
-## Vault conventions
+## Usage
 
-- **Kanban boards:** keep all boards under the configured top-level
-  `BEDROCK_KANBAN_ROOT` folder (default `kanban`). Classification uses the folder,
-  not the `kanban-plugin: board` property. Boards elsewhere are treated as
-  ordinary notes; keep ordinary notes out of the board folder.
-- **Tags and properties:** tag filters use the curated `BEDROCK_KNOWN_TAGS` set
-  and configured aliases from inline prose tags. Frontmatter tags and arbitrary
-  properties are not search filters. Store meaningful information in the body.
-- **Dates:** use exact `YYYY-MM-DD` filenames for daily notes. Inside the
-  configured logs folder, an exact date on the first nonempty body line is also
-  accepted. Dated headings in ordinary notes must contain only `YYYY-MM-DD`;
-  child sections inherit their date. For a compacted project log, use a heading
-  containing exactly `YYYY-MM-DD to YYYY-MM-DD`, e.g.
-  `### 2026-10-01 to 2026-10-02`; endpoints are inclusive and date filters
-  match any overlapping day. Results expose the start as `entry_date` and the
-  end as `entry_date_end`. Dates mentioned in prose or properties
-  and filesystem timestamps do not establish chronology.
-- **Kanban state:** checkbox state and column status are separate. `todo`,
-  `to do`, and `backlog` map to `todo`; `doing`, `in progress`, and `active` map
-  to `doing`; `complete`, `completed`, and `done` map to `complete`, ignoring
-  case. Filter custom states by their actual column names from `list_boards`.
-- **Kanban dates:** card dates use `@{YYYY-MM-DD}` or `@[[YYYY-MM-DD]]`, and
-  times use `@@{HH:MM}` or `@@[[HH:MM]]`, unless board settings override the
-  triggers. A card exposes one date and one time; the date is not automatically
-  interpreted as a due date. Multiple distinct dates produce a warning and
-  retain the first date.
-- **Links:** use `[[Note]]` or `[[Note#Heading]]` (including a vault-relative
-  note path such as `[[projects/Note.md#Heading]]`). Heading names must match
-  the stored heading exactly. Explicit heading links expand every indexed
-  entry in the section, including child headings, within the output budget.
-  `section_continuations` identifies omitted source lines for `read_note`.
-  Block references and same-note heading links
-  are not supported by graph traversal.
-- **Technical snippets:** inline code and code blocks are searchable alongside
-  prose. Tags and wikilinks inside code remain literal text rather than tags
-  or graph connections. Original Markdown is available through `read_note`.
+### Search and inspect sources
 
-After upgrading to date-range support, rebuild the existing index to create
-the new date-end payload index and refresh searchable entries:
+Commands return JSON unless otherwise documented.
 
 ```bash
-docker compose restart bedrock watch mcp
-docker compose exec bedrock bedrock index rebuild
+# Combine keyword and semantic retrieval.
+docker compose exec bedrock bedrock search "why the pipeline changed" --mode hybrid
+
+# Verify an exact phrase, ignoring case and normalizing Unicode.
+docker compose exec bedrock bedrock search "pipeline clustering" --mode literal
+
+# Browse entries with explicit dates, including overlapping date ranges.
+docker compose exec bedrock bedrock search --mode metadata \
+  --date-from 2026-10-01 --date-to 2026-10-14
+
+# Read original Markdown using a vault-relative path or unambiguous title.
+docker compose exec bedrock bedrock note read "projects/Ascending Project.md"
 ```
 
-## Working on it
+The note path in the last example exists in the default fixture vault; use your
+own path when indexing another vault. Search results include note and entry IDs,
+paths, heading paths, dates, and source line ranges. MCP excerpts disclose
+clipping so clients can follow up with paginated original-source reads.
 
-### Project rename
+For links, context, filters, and every command, see the
+[CLI and Python API reference](docs/cli-reference.md).
 
-Bedrock uses the `bedrock` package/CLI, `BEDROCK_*` settings, and the `bedrock`
-Compose project and application service. Earlier names are not supported.
-The local `.env` must use the new setting names. Deterministic IDs also use the
-Bedrock namespace; clients should discover new IDs after rebuilding the index.
+### Query Kanban cards
 
-Stop the previous Compose deployment before starting Bedrock to release its
-ports. The renamed Compose project creates new Qdrant/model-cache volumes;
-previous volumes are retained, but are not automatically reused. Follow the
-startup instructions to build the image, prefetch models, and rebuild the index.
-An existing HTTP MCP client can keep its endpoint when the configured port is
-unchanged; stdio clients must use the `bedrock` command and updated repo path.
+```bash
+docker compose exec bedrock bedrock kanban list
+docker compose exec bedrock bedrock kanban find --status doing --checked false
+```
 
-### Development
+Boards live under the configured Kanban root. Column status, checkbox state,
+and explicit card dates remain separate. See
+[Kanban usage](docs/cli-reference.md#kanban) and
+[vault conventions](docs/operations.md#vault-conventions).
+
+### Connect an assistant
+
+Configure an MCP-compatible client to use Streamable HTTP at
+`http://127.0.0.1:8000/mcp`. Bedrock exposes nine read-only tools for note search
+and discovery, original-source reads, backlinks, tasks, context, boards, tags,
+and availability/freshness checks.
+
+The [MCP guide](docs/mcp.md) covers HTTP and stdio configuration, tool arguments,
+pagination, evidence handling, and containerized clients. Citation presentation
+belongs to the consuming assistant.
+
+The legacy `bedrock ask` command can answer through LM Studio running on the
+host. It is optional; the MCP and indexing services do not depend on it.
+See [the answering-layer contract](docs/design.md#10-legacy-answering-layer).
+
+### Use the graph and live updates
+
+```bash
+curl --fail http://localhost:8080/graph/snapshot
+curl -N http://localhost:8080/events
+```
+
+The HTTP snapshot exposes notes, tags, wikilinks, and missing-target
+placeholders, including empty and isolated notes. Cosmograph downloads are
+available too. Graph responses support ETags; SSE announces note changes and
+changed graph snapshots. These events do not indicate search-index readiness.
+
+A separate `bedrock graph export` command exposes index-backed link,
+shared-tag, and shared-date relationships. See the
+[graph and event reference](docs/cli-reference.md#network-graph) for schemas,
+export commands, caching, reconnection, and visualization setup.
+
+## Technical overview
+
+```text
+Read-only Markdown vault
+  -> CommonMark parsing and structured entries
+  -> vault-wide wikilink resolution
+  -> local dense + sparse encoding
+  -> Qdrant derived index
+  -> filtered retrieval and bounded context
+  -> CLI / Python API / read-only MCP
+
+Read-only Markdown vault
+  -> HTTP observer and event bus
+  -> cached graph snapshot / Cosmograph exports / SSE
+```
+
+| Capability | Implementation | Detailed explanation |
+| --- | --- | --- |
+| Structure-aware parsing | Daily sections, dated updates, freeform sections/chunks, and atomic Kanban cards; code remains searchable | [Entries and pipeline](docs/design.md#2-what-one-point-is) |
+| Local hybrid retrieval | CPU FastEmbed, 384-dimensional MiniLM dense vectors, BM25 sparse vectors, and RRF fusion; five search modes | [Retrieval](docs/design.md#6-retrieval) |
+| Source-linked evidence | Note identity, heading hierarchy, line ranges, bounded excerpts, and complete source reads | [Evidence and reads](docs/mcp.md#evidence-and-complete-reads) |
+| Dependency-aware updates | Debounced watcher batches widen to affected link references; stale entries are removed | [Index updates](docs/design.md#5-two-write-modes) |
+| Vector reuse and identity | Deterministic IDs and embedding fingerprints; renames can change IDs while allowing vector reuse | [Identity](docs/design.md#3-names-decide-everything) and [fingerprints](docs/design.md#vectors-follow-the-fingerprint-not-the-id) |
+| Safe rebuilds | Build and validate a replacement collection, then atomically switch the live alias | [Rebuild lifecycle](docs/design.md#5-two-write-modes) |
+| Explicit chronology | Daily dates, dated headings, inclusive date ranges, and Kanban annotations; no inferred dates | [Date semantics](docs/design.md#7-dates) |
+| Bounded related context | Outgoing links, backlinks, and nearby history with provenance and traversal budgets | [Context](docs/design.md#6-retrieval) |
+| Live interface data | Source-backed graph cache, content-derived ETags, event bus, and ephemeral SSE | [Graph architecture](docs/design.md#9-live-graph-and-notifications) |
+| Reusable agent tools | Nine read-only MCP tools over HTTP or stdio, independent of a chat model | [MCP contract](docs/mcp.md#tools) |
+
+Bedrock deliberately keeps Qdrant as its only derived datastore and performs
+embedding in-process on CPU. The parser, metadata rules, and source references
+keep retrieval grounded in the files. The
+[design document](docs/design.md) explains the decisions, algorithms, and limits.
+
+## Boundaries and limitations
+
+- Markdown is read-only; Bedrock does not edit notes or autonomously manage tasks.
+- Search tag filters use configured inline tags and aliases. The source-backed
+  graph includes broader inline/frontmatter tags; these are distinct contracts.
+- Missing or ambiguous links are reported rather than guessed. Graph traversal
+  does not support block references or same-note heading links.
+- Long indivisible paragraphs and cards can exceed the dense model window;
+  warnings disclose this. Excerpt clipping is a separate limit.
+- Context expansion is selected, bounded evidence. Paginated tool results are
+  not a durable snapshot; clients must handle concurrent edits.
+- GUI, voice, and the wider research/assistant workflow belong to Zenith or
+  another consuming application.
+
+See [encoder limits](docs/design.md#8-entry-size-and-the-encoder-window),
+[vault conventions](docs/operations.md#vault-conventions), and the
+[MCP contract](docs/mcp.md) before integrating a client.
+
+## Documentation
+
+| Read this to… | Guide |
+| --- | --- |
+| Understand the architecture, algorithms, tradeoffs, and invariants | [How Bedrock works](docs/design.md) |
+| Connect an agent and implement tool workflows | [MCP integration](docs/mcp.md) |
+| Look up commands, JSON shapes, HTTP endpoints, and Python methods | [CLI and library reference](docs/cli-reference.md) |
+| Configure notes, diagnose stale results, upgrade, or contribute | [Operations and development](docs/operations.md) |
+
+## Development
+
+Requires Python 3.13+ and uv:
 
 ```bash
 uv sync --dev
 uv run pytest
 ```
 
-Compose binds `./src` over the image, and `PYTHONPATH` puts the mount first, so
-the containers run the working tree. Edit a file and the next
-`docker compose exec` picks it up with no rebuild. The two long-running
-processes hold their own code:
-
-```bash
-docker compose restart bedrock watch mcp
-```
-
-Rebuild the image only when a dependency changes.
-
-## Documentation
-
-- [docs/mcp.md](docs/mcp.md) — the Bedrock v1 tool contract and MCP setup.
-- [docs/design.md](docs/design.md) — how Bedrock works, and why. The decisions,
-  the indexing pipeline, the retrieval modes, the invariants, and the known
-  limits.
-- [docs/cli-reference.md](docs/cli-reference.md) — every command, option,
-  response shape, exit code, and Python API method.
+Compose mounts the working `src` tree. Restart `bedrock`, `watch`, and `mcp`
+after code changes to reload their long-running processes; dependency changes
+require an image rebuild. See [development details](docs/operations.md#development)
+and [test coverage](docs/operations.md#what-the-tests-cover).

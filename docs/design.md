@@ -2,7 +2,9 @@
 
 The single source of truth for what Bedrock is and why it is built this way.
 Command syntax, flags, and response shapes live in
-[cli-reference.md](cli-reference.md).
+[cli-reference.md](cli-reference.md). Agent integration is specified in
+[mcp.md](mcp.md); configuration, recovery, and development are covered in
+[operations.md](operations.md).
 
 ## 1. The decision
 
@@ -14,7 +16,7 @@ One Docker Compose project runs everything:
 
 | Service | Role |
 | --- | --- |
-| `bedrock` | Parse, index, embed, query, answer. Runs the health service. |
+| `bedrock` | Parse, index, embed, query, answer. Runs health, cached graph HTTP routes, and SSE. |
 | `watch` | Watchdog watcher. Indexes each debounced change batch. |
 | `mcp` | Read-only, agent-independent vault tools over MCP. |
 | `qdrant` | All derived storage and retrieval. Dashboard on `127.0.0.1:6333`. |
@@ -32,7 +34,7 @@ Markdown vault  ->  parser  ->  entries  ->  link resolution
 
 Ruled out, deliberately: SQLite, FTS5, a separate graph database, cloud
 inference, and hosted embedding APIs. Embedding runs in the application process
-on CPU through FastEmbed. Section 9 explains why that constraint is load
+on CPU through FastEmbed. Section 10 explains why that constraint is load
 bearing.
 
 ## 2. What one point is
@@ -112,7 +114,7 @@ files -> parse -> entries -> resolve links -> encode -> points -> Qdrant
 | --- | --- | --- |
 | find | `parser/discovery.py` | Collect every `.md` file. Skip excluded folders. |
 | parse | `parser/service.py` | Cut a note into entries at its headings, then split any section too long for the encoder. |
-| name | `core/identity.py` | Give every note and entry a permanent id. |
+| name | `core/identity.py` | Give notes and entries deterministic, path/structure-based ids. |
 | link | `index/links.py` | Resolve each `[[wikilink]]` to `resolved`, `ambiguous`, or `missing`. |
 | encode | `index/encoders.py` | Build one dense and one sparse vector per entry. |
 | store | `index/rebuild.py`, `index/incremental.py` | Write the points to Qdrant. |
@@ -126,6 +128,34 @@ Encoding is pinned: `sentence-transformers/all-MiniLM-L6-v2` for the dense
 the sparse `text-bm25` vector with English stemming, stopwords, and Qdrant's
 IDF modifier. A prefetch command fills the model cache so normal operation runs
 offline.
+
+### Example: from Markdown to evidence
+
+Consider a standard note at `projects/Pipeline.md`:
+
+```markdown
+# Pipeline
+
+## 2026-10-14
+
+### Decision
+
+Replaced repeated full scans with incremental updates. See [[Experiments]].
+```
+
+The decision passage becomes a `project_update` under the heading path
+`Pipeline / 2026-10-14 / Decision`. It inherits the explicit date
+`2026-10-14`, retains its path and source lines, and gets a deterministic
+entry identity. Its wikilink is resolved against the vault catalog; a missing
+or ambiguous target is recorded rather than guessed.
+
+Encoding creates dense and sparse vectors for the entry. A hybrid query such
+as `why incremental updates` ranks candidate entries within any requested
+metadata filters. The returned passage carries its identity and source
+location. An MCP client can then call `read_note` with the returned note ID and
+line range to inspect original Markdown, or `expand_context` with the entry ID
+to retrieve selected related evidence. Relevance ranking alone does not
+establish that a passage answers the question; the client must inspect it.
 
 ## 5. Two write modes
 
@@ -301,7 +331,65 @@ truncation: improving an excerpt cannot recover semantic recall for text that
 never reached the embedding model. Query-relevant excerpts remain deferred;
 the current workaround is a source read.
 
-## 9. Legacy answering layer
+## 9. Live graph and notifications
+
+Bedrock has two graph representations with different purposes:
+
+| Representation | Source | Relationships |
+| --- | --- | --- |
+| `bedrock graph export` | Index-backed export | Resolved link occurrences, shared tags, exact shared dates |
+| HTTP snapshot and Cosmograph tables | Markdown vault directly | Directed wikilinks and note-to-tag membership; missing-target placeholders |
+
+The HTTP snapshot includes empty and isolated notes and can operate without
+Qdrant or embedding models. Graph tags include inline and frontmatter tags,
+including nested and unconfigured tags, case-folded without search-index tag
+aliases. This is distinct from the curated inline-tag search filters. Code
+examples contribute neither tags nor links. Ambiguous targets appear as
+unresolved diagnostics; Markdown-style links and attachments are excluded.
+
+### Two independent change consumers
+
+The `watch` process uses the shared Watchdog layer to maintain the Qdrant
+index. The `bedrock serve` process uses its own observer over the same vault
+because it owns the in-memory graph cache and client notification streams.
+Both use debounced Markdown events and full convergence for directory
+structural changes; startup catch-up covers edits made while offline.
+
+```text
+Markdown changes
+  -> indexing watcher -> scoped parse/link resolution -> Qdrant
+  -> HTTP observer -> notes.changed -> event bus
+                                      -> graph cache rebuild
+                                         -> graph.updated if ETag changed
+                                      -> SSE clients
+```
+
+`notes.changed` is published before graph rebuilding and also covers prose-only
+edits. `graph.updated` is published only after a changed snapshot is readable.
+Neither event establishes search-index readiness. Clients use `vault_status`
+for searchable-entry freshness and Compose status/logs for watcher liveness.
+
+### Cached representations and recovery
+
+Snapshots, Cosmograph tables, encoded JSON, and content-derived ETags are cached
+at rebuild time. GET requests reuse that data without rescanning the vault or
+reserializing it. Conditional requests return HTTP 304 when a representation
+is unchanged. An edit that leaves the graph JSON identical retains its ETag.
+
+A failed rebuild marks the graph unavailable and returns HTTP 503 until
+recovery, rather than serving stale success. The watcher keeps failed work
+pending and retries with exponential backoff, capped at sixty seconds.
+
+SSE is an ephemeral notification channel. Sequences reset after process
+restart, and `Last-Event-ID` is not replayed. Each stream has a bounded queue;
+slow consumers are disconnected so they can reconnect and resynchronize.
+Clients must revalidate the graph and refresh open notes on every connection.
+
+Endpoint schemas, ETag semantics, event payloads, and Cosmograph setup are
+specified in the [network graph reference](cli-reference.md#network-graph).
+For operational checks, see [operations](operations.md#checking-availability-and-freshness).
+
+## 10. Legacy answering layer
 
 Bedrock v1 exposes its agent-independent tool contract through MCP; see
 [mcp.md](mcp.md). It returns canonical identities and source metadata, leaving
@@ -364,7 +452,7 @@ external inference server is rejected. `bedrock health` reports LM Studio but
 never fails because of it, and the container liveness probe at `/healthz` does
 not contact it at all.
 
-## 10. Rules that never bend
+## 11. Rules that never bend
 
 - Never modify Markdown during indexing.
 - Treat the Qdrant collection as rebuildable derived data.
