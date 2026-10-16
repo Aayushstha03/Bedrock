@@ -19,7 +19,7 @@ from bedrock.core.contracts import (
     SourceRange,
     WarningType,
 )
-from bedrock.core.identity import entry_id
+from bedrock.core.identity import entry_id, kanban_card_version
 from bedrock.parser.kanban_dates import lifecycle_dates
 from bedrock.parser.kanban_structure import BLOCK_ID_RE, CARD_RE, board_columns
 from bedrock.parser.markdown import (
@@ -256,6 +256,9 @@ def parse_kanban_entries(
                         card_position=card_position,
                         checked=match.group(1).casefold() == "x",
                         card_time=card_time,
+                        version=kanban_card_version(
+                            column.name, column.archived, "\n".join(lines[span.start : span.end])
+                        ),
                         task_id=span.block_id,
                         archived=column.archived,
                         **dates,

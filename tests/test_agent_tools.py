@@ -57,19 +57,26 @@ def ctx(tmp_path: Path) -> RunContext[Sources]:
     return RunContext(deps=Sources(api), model=TestModel(), usage=RunUsage())
 
 
-def test_every_tool_declares_a_flat_described_schema() -> None:
+def test_every_tool_declares_a_small_described_schema() -> None:
     for function in tools.TOOLS:
         definition = Tool(function, require_parameter_descriptions=True).tool_def
         assert definition.description
         schema = definition.parameters_json_schema
         for name, spec in schema.get("properties", {}).items():
             assert spec.get("description"), f"{definition.name}.{name} has no description"
-            # Flat arguments only: a local model handles scalars and string
-            # lists, and fumbles nested objects.
+            # Only card batches introduce objects, one shallow shape per tool.
+            # No generic action unions or nested operation language.
             types = {spec.get("type")} | {option.get("type") for option in spec.get("anyOf", [])}
             assert types <= {"string", "integer", "boolean", "array", "null", None}
             if "array" in types:
-                assert spec.get("items", spec.get("anyOf", [{}])[0].get("items", {})).get("type") == "string"
+                items = spec.get("items", spec.get("anyOf", [{}])[0].get("items", {}))
+                if name == "cards":
+                    shape = schema["$defs"][items["$ref"].split("/")[-1]]
+                    assert shape["additionalProperties"] is False
+                    assert "oneOf" not in shape and "discriminator" not in shape
+                    assert all(prop.get("type") != "object" for prop in shape["properties"].values())
+                else:
+                    assert items.get("type") == "string"
 
 
 def test_every_tool_takes_an_annotated_run_context() -> None:
@@ -99,10 +106,11 @@ def test_only_scoped_writes_and_bounded_reads_are_offered() -> None:
         "list_notes",
         "create_board",
         "get_task",
-        "add_task",
-        "update_task",
-        "move_task",
-        "archive_task",
+        "add_cards",
+        "edit_cards",
+        "move_cards",
+        "archive_cards",
+        "delete_board",
     }
     assert "reindex" not in offered
     assert "export_graph" not in offered

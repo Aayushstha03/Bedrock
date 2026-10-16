@@ -8,6 +8,7 @@ from bedrock.core.contracts import EntryType, NoteType, RetrievalMode
 
 
 class Task(BaseModel):
+    version: str | None = None
     task_id: str | None = None
     archived: bool = False
     column: str

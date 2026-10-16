@@ -92,15 +92,24 @@ docker compose exec bedrock bedrock kanban list
 docker compose exec bedrock bedrock kanban find --status doing --checked false
 ```
 
-Boards live under the configured Kanban root. Column status, checkbox state,
-and explicit card dates remain separate. See
+Boards live under the configured Kanban root. Custom columns are supported
+without requiring a task workflow.
+Agents can add, edit, move, and archive lists of entries in existing columns.
+Create a board with `create_board(path="Project", request_id="create-project")`;
+Bedrock supplies the configured folder and `.md` extension and returns its path.
+The same list-based tools handle a single card. Each call validates and saves
+one board as a unit; additions need no board revision hash.
+New entries receive `created_at`; ordinary custom columns do not trigger start
+or completion timestamps. The tools cannot add, rename, or remove columns on
+an existing board. Column status, checkbox state, and explicit card dates remain
+separate. See [Kanban editing](docs/mcp.md#kanban-editing),
 [Kanban usage](docs/cli-reference.md#kanban) and
 [vault conventions](docs/operations.md#vault-conventions).
 
 ### Connect an assistant
 
 Configure an MCP-compatible client to use Streamable HTTP at
-`http://127.0.0.1:8000/mcp`. Bedrock exposes fifteen tools for note search, discovery, original-source reads,
+`http://127.0.0.1:8000/mcp`. Bedrock exposes sixteen tools for note search, discovery, original-source reads,
 backlinks, tasks, context, boards, tags, and availability/freshness checks, plus
 scoped board/task editing with revision checks and backups. See
 [Kanban editing](docs/mcp.md#kanban-editing).
@@ -157,7 +166,7 @@ Read-only Markdown vault
 | Explicit chronology | Daily dates, dated headings, inclusive date ranges, and Kanban annotations; no inferred dates | [Date semantics](docs/design.md#7-dates) |
 | Bounded related context | Outgoing links, backlinks, and nearby history with provenance and traversal budgets | [Context](docs/design.md#6-retrieval) |
 | Live interface data | Source-backed graph cache, content-derived ETags, event bus, and ephemeral SSE | [Graph architecture](docs/design.md#9-live-graph-and-notifications) |
-| Reusable agent tools | Fifteen MCP tools over HTTP or stdio, with scoped Kanban editing and no chat model dependency | [MCP contract](docs/mcp.md#tools) |
+| Reusable agent tools | Sixteen MCP tools over HTTP or stdio, with scoped Kanban editing and no chat model dependency | [MCP contract](docs/mcp.md#tools) |
 
 Bedrock deliberately keeps Qdrant as its only derived datastore and performs
 embedding in-process on CPU. The parser, metadata rules, and source references
@@ -167,7 +176,8 @@ keep retrieval grounded in the files. The
 ## Boundaries and limitations
 
 - Writes are confined to Kanban board/task tools. Other Markdown notes stay read-only.
-  Moving across board files and deleting notes/boards are not supported.
+  Cross-board moves and permanent deletion are not supported. Board deletion
+  requires a warning preview and retains the complete file in recoverable trash.
 - Search tag filters use configured inline tags and aliases. The source-backed
   graph includes broader inline/frontmatter tags; these are distinct contracts.
 - Missing or ambiguous links are reported rather than guessed. Graph traversal

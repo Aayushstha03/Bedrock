@@ -223,20 +223,44 @@ docker compose up -d bedrock mcp watch
 docker compose exec bedrock bedrock index rebuild
 ```
 
-No note/board deletion tool is exposed. Before each update, move, archive, or
-addition to an existing board, Bedrock saves the previous bytes beneath that
-board's directory in `.bedrock-backups/<filename>.<revision>.bak`. These are not
-Markdown notes and are not indexed. Backups are retained; inspect them before
-manually restoring one. New-board creation uses exclusive publication and
-refuses to overwrite an existing file. Board paths must be explicit `.md` paths
-beneath the configured root; excluded paths, symlinks, and hard-linked files are
-rejected.
+Ordinary Markdown notes are immutable. Kanban card removal uses the recoverable
+archive; board removal uses a preview/warning token and retains the entire board
+beneath its Kanban root in `.bedrock-trash/<token>/board.md.bak`. No permanent
+deletion tool is exposed. For manual recovery, inspect the retained file, ensure
+the original destination is absent, and copy it back to that path. Never
+replace a newer board as part of recovery; reindex the restored path afterward.
 
-Task writes use a per-board process lock, require the current board hash, and
-check the original bytes again immediately before atomic replacement. Obsidian
-does not participate in this lock: avoid simultaneous saves in Obsidian during
-a tool write. The final compare/replace has a small unavoidable race with an
-uncooperative external editor; backups retain the pre-edit revision.
+Before each saved card batch, Bedrock retains the previous bytes beneath that
+board's directory in `.bedrock-backups/<filename>.<revision>.bak`. These are not
+Markdown notes and are not indexed. Backups and trash are retained; cleanup is
+manual. New-board creation uses exclusive publication and never overwrites an
+existing file. Excluded paths, symlinks, hard-linked files, and internal storage
+paths are rejected by the editing tools.
+
+Card batches use shared file locks beneath
+`<kanban-root>/.bedrock-state/locks/`. These are on the writable Kanban mount,
+so writers in separate containers coordinate through the same files. Request
+receipts live under `.bedrock-state/requests/`; retain this directory with the
+vault so retries remain idempotent across restarts. Internal state, backups,
+and trash are excluded from discovery, graph snapshots, and watcher events.
+
+The server validates all list items in memory and saves/indexes once. Additions,
+moves and archives need no whole-board hash; content edits check each affected
+card's version. File bytes are checked again before atomic replacement. The
+pending request receipt can recognize a source save that completed before a
+process lost its response. If an intervening external change makes recovery
+ambiguous, it returns an uncertainty error rather than duplicating work.
+
+Obsidian does not participate in Bedrock's lock: avoid simultaneous manual saves
+during a tool write. There remains a small compare/replace race with an
+uncooperative external editor; backups preserve the pre-edit revision. Separate
+tool calls are separate transactions; put related same-operation items in one
+list for all-or-nothing validation.
+
+Restart `bedrock` and `mcp` after upgrading, and refresh client MCP tool discovery.
+The old single-card mutation tools are no longer advertised. An index update or
+rebuild populates per-card versions in indexed search results; `get_task` already
+returns current versions directly from the source.
 
 See [the tool contract](mcp.md#kanban-editing) for retries, revision handling,
 archive queries, and saved-source versus index-sync results. The editor supports

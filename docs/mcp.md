@@ -64,12 +64,13 @@ rules also appear in individual tool descriptions.
 | `read_note` | Read original Markdown in bounded pages | `note`, `start_line`, `line_count`, `char_offset`, `expected_hash` |
 | `find_backlinks` | Find entries linking to a note | `note` |
 | `find_tasks` | Search/filter active or archived Kanban cards | `board`, `columns`, `statuses`, `checked`, `archived`, `query`, `mode`, dates, `tags_all` |
-| `create_board` | Create a new board without overwrite | `path`, `request_id`, optional `columns` |
+| `create_board` | Create a board from a name, without overwrite | `path` (plain name or scoped path), `request_id`, optional `columns` |
 | `get_task` | Read a complete editable task and board revision | `board`, `task` |
-| `add_task` | Add a card with stable ID and creation date | `board`, `column`, `title`, `expected_hash`, `request_id`, optional `content`, `due_date`, `position` |
-| `update_task` | Edit task content or explicit dates | `board`, `task`, `expected_hash`, optional `title`, `content`, `due_date`, `created_at` |
-| `move_task` | Move/reorder within the same board | `board`, `task`, `column`, `expected_hash`, optional `position` |
-| `archive_task` | Retain a card in the plugin archive | `board`, `task`, `expected_hash` |
+| `add_cards` | Append 1–30 cards in one save | `board`, `cards` (`title`, `column`, optional `content`, `due_date`), `request_id` |
+| `edit_cards` | Edit 1–30 cards with per-card version checks | `board`, `cards` (`task_id`, `version`, changed fields), `request_id` |
+| `move_cards` | Move/reorder 1–30 cards within one board | `board`, `cards` (`task_id`, destination `column`, optional `from_column`, `position`), `request_id` |
+| `archive_cards` | Recoverably remove 1–30 cards from active use | `board`, `cards` (`task_id`), `request_id` |
+| `delete_board` | Preview removal, then retain a whole board in trash | `board`, optional `confirmation_token` from preview |
 | `expand_context` | Select links, backlinks, nearby history | `entry_id`, `link_depth`, `nearby_days`, `max_notes`, `max_items` |
 | `list_boards` | Discover boards and empty columns | `limit`, `offset` |
 | `vault_status` | Check index availability and freshness | none |
@@ -112,57 +113,124 @@ their existing meaning. See [the card format](operations.md#kanban-lifecycle-dat
 
 ## Kanban editing
 
-All editing arguments use an explicit vault-relative board path under the
-configured Kanban root, such as `kanbans/Project.md`. Board title lookup remains
-available on read/search tools. Writes do not need an inference model or a ready
-Qdrant index. The Python API exposes the same operations as `bedrock.kanban.*`.
+`create_board(path="Project", request_id="create-project")` accepts a plain
+board name: the server supplies the configured Kanban folder and `.md` extension.
+`Project.md` and explicit paths beneath that folder also work; scoped paths may
+omit `.md`. Use the returned `path` for subsequent card operations.
 
-1. Use `create_board` for a new file; it defaults to ToDo, Doing, Completed and
-   never overwrites existing files. Custom columns must be unique. Give each new
-   board/task a unique `request_id`; reuse it only for retries. A replay returns
-   the saved object with `replayed=true`, even if its content has since changed.
-2. Use `read_note` or a previous write result to get a board's `content_hash`
-   before `add_task`. Use `find_tasks` to locate a task, then `get_task` to read
-   its full content and current board `content_hash` before updating/moving it.
-3. Pass the latest hash as `expected_hash`. A conflict saves nothing: reread
-   before retrying. Every successful mutation returns the new hash; a hash from
-   before another card's edit is also stale because revisions cover the board.
-4. `content` means Markdown below the first-line `title`, without the task
-   checkbox or the managed date block. Omitted update fields are preserved;
-   empty content clears the body, and empty `due_date` clears its date. An
-   explicit `created_at` can supply a known historical timestamp. Invalid
-   existing date blocks must be repaired before a task can be edited.
-5. `position` is zero-based in the destination column after removal; omitted
-   appends. Cross-file moves are unsupported. Completed columns check cards;
-   other active columns uncheck them. Doing stamps the first `started_at`;
-   entering Completed stamps `completed_at`; reopening clears completion while
-   retaining the original start and due dates. Native `**Complete**` markers
-   identify completion columns even with custom names.
-6. `archive_task` uses the plugin's `***` / `## Archive` section in the same
-   file. It preserves content, IDs, dates, and checkbox state. `find_tasks`
-   defaults to `archived=false`; use `true` for archived tasks or `null` for
-   both. Generic note search can still retrieve archived cards. `move_task`
-   can reopen an archived card into an active column.
+Existing boards are modified only through explicit vault-relative `.md` paths
+beneath the configured Kanban root, such as `kanban/Project.md`. Ordinary notes remain immutable, even
+inside that folder unless they have valid `kanban-plugin: board` frontmatter.
+Custom columns and table-style boards are supported; no task workflow is
+required. Existing column names/layout cannot be added, renamed, removed, or
+reordered by these tools. `create_board` accepts custom columns for new boards
+and never overwrites an existing file.
 
-Task identity uses the plugin's native `^block-id` syntax on the first card line.
-New tasks receive a `bedrock-...` ID. Existing native IDs are retained; a legacy
-card without one gets an ID on its first mutation, and that mutation returns
-its new `task_id` and `entry_id`. IDs stay stable through later moves, content
-edits, ordering changes, and archiving. Block IDs and lifecycle date blocks are
-excluded from searchable prose and embeddings. Readers still expose checkbox
-and column state separately for existing manually inconsistent cards.
+Card mutation tools always take a `cards` list, including for one card. Each call
+covers 1–30 items in one board, in input order. Bedrock locks the board, loads its
+latest source, applies changes in memory, validates the entire list, writes one
+backup, saves once, and indexes once. Invalid items save no part of the batch;
+errors identify the zero-based `cards[index]`. Separate tool calls are separate
+transactions, even when a model returns them together. Arriving calls are not
+silently buffered into a batch.
 
-This format follows the community plugin's [card and archive serializer](https://github.com/community-archive/obsidian-kanban/blob/main/src/parsers/formats/list.ts).
-Card continuation lines are indented four spaces, matching its serializer. Plugin
-settings, frontmatter, unrelated cards, and nested content remain intact.
+For example, `add_cards` accepts:
 
-Writes back up the prior bytes and replace the file atomically. They return
-`saved`, `index_status`, and optional `index_error` separately. If source saving
-succeeds but Qdrant sync fails, `saved=true` and `index_status=failed`: the task
-already exists. Do not add another task to repair indexing. Restore index
-availability and reindex, or let the watcher converge. `get_task` reads the saved
-source even while the index is offline. File permission/validation/revision
-errors save nothing. [Deployment and concurrency details](operations.md#enabling-kanban-edits).
+```json
+{
+  "board": "kanban/Project.md",
+  "request_id": "planning-round-1",
+  "cards": [
+    {"title": "First task", "column": "ToDo"},
+    {"title": "Second task", "column": "Doing", "due_date": "2026-10-25"}
+  ]
+}
+```
+
+Additions append to their named columns, preserving input order within each
+column. No `expected_hash`, preliminary source read, or position is needed.
+Concurrent independent additions use the latest board and do not invalidate
+one another. Use `move_cards` for explicit ordering after creation.
+
+`edit_cards` requires each affected card's `task_id` and `version` from a
+mutation result, `get_task`, or an up-to-date `find_tasks` result. Unrelated card
+changes do not invalidate that version. Replacing a card that has itself changed
+fails with a version conflict; reread its contents before making a new edit.
+Older indexed results without a version need `get_task` first. Omitted title,
+content, due_date, and created_at are preserved; empty content clears the body,
+and empty due_date clears its date. Content means Markdown below the title,
+without checkbox, native ID or the managed date block. A known historical
+created_at can be supplied explicitly. Invalid date blocks need repair before
+editing.
+
+`move_cards` uses `task_id` and destination `column`. Optional `from_column`
+asserts the current source, rejecting stale moves. Optional `position` is
+zero-based after removal; omitted appends. Later list items see earlier changes,
+so a card can move through multiple columns in one call. Returned summaries
+reflect the final state in input order, including repeated cards. Cross-board
+moves are unsupported.
+
+Lifecycle rules apply to new and existing boards:
+
+- New entries always receive `created_at`; `due_date` is optional. Unknown
+  creation dates on existing entries are never invented.
+- Doing aliases (`doing`, `in progress`, `on progress`, `working`, `active`)
+  stamp the first `started_at`. Ordinary custom columns do not invent start or
+  completion times.
+- Completed aliases (`complete`, `completed`, `done`) or a native `**Complete**`
+  marker identify completion columns. Entering one checks the card and stamps
+  `completed_at`; reopening unchecks and clears completion while retaining the
+  first start and due date. Alias matching ignores case and normalizes spaces.
+
+`archive_cards` is the recoverable card-removal tool. It retains content, IDs,
+checkbox state, and dates in the plugin's `***` / `## Archive` section in the same
+file. `find_tasks` defaults to `archived=false`; `true` selects archived cards
+and `null` includes both. Generic search still sees archived content.
+`move_cards` reopens archived cards into active columns. Permanent card deletion
+is not exposed.
+
+Every card batch requires a unique `request_id`. After a timeout, retry the
+**identical list and operation with the same ID**. A different payload with the
+same ID is rejected. Receipts survive server restarts and prevent repeated
+additions, moves, or edits from reapplying. Replayed responses describe the
+original saved result, so reread before a later edit if anything may have
+changed. If a crash and an external edit make a pending request's outcome
+uncertain, Bedrock refuses to guess or reapply it; inspect the board first.
+
+Responses return `items` containing task IDs, per-card versions, columns,
+checkboxes, lifecycle dates, and titles. Complete Markdown is available through
+`get_task` or paginated `read_note`. Source saving and index synchronization are
+reported independently: `saved=true, index_status=failed` means the file was
+saved. Do not issue new additions to fix indexing; retry the identical request
+with its original ID to resync, or let the watcher converge.
+
+`delete_board` is deliberately separate from card batches:
+
+1. Call with `board` only. It returns a preview, card count, warning, and
+   `confirmation_token`; no board is removed.
+2. Warn the user that the named board and all cards will leave active use.
+3. Execute with the returned token. Changes since preview invalidate it and
+   require a new preview/warning. Successful removal retains the complete file
+   in Kanban trash and returns `trash_path` for recovery. Retrying the same token
+   cannot remove a subsequently recreated board.
+
+The tool requires a preview token and instructs clients to warn first. It cannot
+verify that a client displayed the warning; clients requiring enforced human
+approval must implement that UI policy. Note contents never authorize a write.
+
+Identity uses the plugin's native first-line `^block-id`. Existing native IDs
+remain; a legacy card receives one on its first mutation. Mutation responses
+return the new ID, which survives moves, edits, reordering, and archiving. These
+IDs and date blocks are excluded from searchable prose and embeddings. The
+format follows the community plugin's [card and archive serializer](https://github.com/community-archive/obsidian-kanban/blob/main/src/parsers/formats/list.ts),
+including four-space continuation indentation.
+
+The exposed MCP card API replaces `add_task`, `update_task`, `move_task`, and
+`archive_task`. Refresh MCP tool discovery after restarting the server. Existing
+Python single-card editor methods remain available for compatibility, with
+their original board-revision contract; new integrations should use
+`bedrock.kanban.add_cards/edit_cards/move_cards/archive_cards`. The read_note
+pagination hash contract remains unchanged. [Storage, deployment and concurrency](operations.md#enabling-kanban-edits).
 
 ## Evidence and complete reads
 

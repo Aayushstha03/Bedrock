@@ -31,11 +31,11 @@ def build_server(service: VaultTools, *, host: str = "127.0.0.1", port: int = 80
             "Choose tools by intent: list_tags discovers configured search tags and meanings; list_notes locates names/paths; search_notes finds content; "
             "read_note reads original source; find_backlinks finds references; expand_context "
             "follows related evidence; list_boards discovers columns; find_tasks filters cards; "
-            "vault_status diagnoses availability/freshness. create_board creates a new board; "
-            "get_task reads a full card and board revision; add_task, update_task, move_task, "
-            "archive_task edit only explicit board paths. Never overwrite a board to create one. "
-            "Use fresh content_hash as expected_hash for writes; on conflict reread. Reuse request_id "
-            "only for creation retries. Saved writes can have index_status=failed; do not duplicate "
+            "vault_status diagnoses availability/freshness. create_board accepts a simple board name and resolves its folder and .md extension automatically; "
+            "get_task reads a full card and its version; add_cards, edit_cards, move_cards, "
+            "archive_cards edit lists of 1-30 cards in one board per call. delete_board first previews; warn the user before executing with its token. Never overwrite a board to create one. "
+            "No whole-board hash is needed for card batches. edit_cards needs each affected card version; on conflict reread get_task. Reuse request_id "
+            "only for retries with identical arguments. Saved writes can have index_status=failed; do not duplicate "
             "a saved task to repair indexing. Move only between columns in the same file. "
             "Only Completed tasks are checked; moves manage lifecycle timestamps.\n"
             "Search results are candidate passages, not proof that the question's premise is true. "
@@ -81,7 +81,7 @@ def build_server(service: VaultTools, *, host: str = "127.0.0.1", port: int = 80
             structured_output=True,
             annotations=ToolAnnotations(
                 readOnlyHint=name not in WRITE_TOOL_NAMES,
-                destructiveHint=name in {"update_task", "move_task", "archive_task"},
+                destructiveHint=name in {"edit_cards", "move_cards", "archive_cards", "delete_board"},
                 openWorldHint=False,
             ),
         )

@@ -37,7 +37,7 @@ from bedrock.parser.discovery import discover_markdown
 from bedrock.parser.service import VaultParser
 from bedrock.retrieval.context import ContextExpander
 from bedrock.retrieval.service import Retriever
-from bedrock.vault.editor import KanbanEditor
+from bedrock.vault.batch_editor import BatchKanbanEditor
 
 
 class Bedrock:
@@ -53,7 +53,7 @@ class Bedrock:
         self.vault_id = vault_id
         self.client = client or QdrantClient(url=settings.qdrant_url)
         self.encoders = encoders
-        self.kanban = KanbanEditor(self)
+        self.kanban = BatchKanbanEditor(self)
         self._notes: tuple[ParsedNote, ...] | None = None
         self._resolved: tuple[ParsedNote, ...] | None = None
         self._fingerprint: tuple[tuple[str, int, int], ...] | None = None

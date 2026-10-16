@@ -95,6 +95,7 @@ class KanbanData:
     column_position: int
     card_position: int
     checked: bool
+    version: str | None = None
     task_id: str | None = None
     archived: bool = False
     card_time: str | None = None

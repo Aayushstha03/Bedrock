@@ -33,7 +33,7 @@ from bedrock.parser.markdown import (
 )
 from bedrock.parser.tokens import content_budget, estimate_tokens
 
-PARSER_VERSION = "3.5.0"
+PARSER_VERSION = "3.6.0"
 
 
 class VaultParser:
@@ -49,6 +49,11 @@ class VaultParser:
         resolved = file_path.resolve()
         relative = resolved.relative_to(vault).as_posix()
         content = resolved.read_text(encoding="utf-8")
+        return self.parse_content(relative, content)
+
+    def parse_content(self, relative: str, content: str) -> ParsedNote:
+        """Parse a vault-relative source snapshot without writing a temporary file."""
+        resolved = Path(relative)
         lines = content.splitlines()
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         note_uuid = str(note_id(self.vault_id, relative))

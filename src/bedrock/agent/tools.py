@@ -11,13 +11,15 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Annotated, Any
 
+from pydantic import Field
 from pydantic_ai import ModelRetry, RunContext
 
 from bedrock.agent import projections
 from bedrock.agent.sources import Sources
 from bedrock.core.contracts import NoteType, ResultOrder
+from bedrock.vault.kanban_contracts import CardEdit, CardMove, CardTarget, NewCard
 
 _SOURCE_ID = re.compile(r"s\d+", re.IGNORECASE)
 
@@ -242,7 +244,8 @@ def create_board(
     """Create a new Kanban board without overwriting any existing file.
 
     Args:
-        path: New .md path beneath the configured Kanban root.
+        path: Plain board name, e.g. Project. Folder and .md are automatic;
+            an explicit path under the configured Kanban root also works.
         request_id: Unique creation key; reuse only to retry this same request.
         columns: Column names; defaults to ToDo, Doing, Completed.
     """
@@ -262,94 +265,88 @@ def get_task(ctx: RunContext[Sources], board: str, task: str) -> dict[str, Any]:
         return ctx.deps.vault.kanban.get_task(board, selected).model_dump()
 
 
-def add_task(
+def add_cards(
     ctx: RunContext[Sources],
     board: str,
-    column: str,
-    title: str,
-    expected_hash: str,
+    cards: Annotated[list[NewCard], Field(min_length=1, max_length=30)],
     request_id: str,
-    content: str = "",
-    due_date: str | None = None,
-    position: int | None = None,
 ) -> dict[str, Any]:
-    """Add a card with a stable ID, lifecycle dates, and column-driven checkbox.
+    """Append one or more cards with no board hash; save the entire list once.
 
     Args:
-        board: Explicit vault-relative .md board path.
-        column: Existing destination column name.
-        title: Single-line task title without checkbox or ID.
-        expected_hash: Latest board content_hash from read/create/edit tools.
-        request_id: Unique per new task; reuse on retry to prevent duplicates.
-        content: Markdown below the title; omit managed date blocks.
-        due_date: Optional YYYY-MM-DD due date.
-        position: Zero-based position in column; omit to append.
+        board: Explicit .md path beneath the configured Kanban root.
+        cards: List of 1-30 objects with title, column, optional content and due_date.
+        request_id: Unique call ID; retry the identical list with the same ID.
     """
     with _repair():
-        return ctx.deps.vault.kanban.add_task(
-            board, column, title, expected_hash, request_id, content, due_date, position
-        ).model_dump()
+        return ctx.deps.vault.kanban.add_cards(board, cards, request_id).model_dump()
 
 
-def update_task(
+def edit_cards(
     ctx: RunContext[Sources],
     board: str,
-    task: str,
-    expected_hash: str,
-    title: str | None = None,
-    content: str | None = None,
-    due_date: str | None = None,
-    created_at: str | None = None,
+    cards: Annotated[list[CardEdit], Field(min_length=1, max_length=30)],
+    request_id: str,
 ) -> dict[str, Any]:
-    """Edit a card while preserving omitted fields; never delete the card.
+    """Edit a list atomically, checking only each affected card's version.
 
     Args:
-        board: Explicit vault-relative .md board path.
-        task: task_id or entry_id from get_task or find_tasks.
-        expected_hash: Latest board content_hash; reread on conflict.
-        title: Replacement single-line title; omit to preserve.
-        content: Replacement Markdown below title; empty clears, omit preserves.
-        due_date: YYYY-MM-DD sets, empty clears, omit preserves.
-        created_at: Optional known historical creation timestamp with timezone.
+        board: Explicit .md board path.
+        cards: List of task_id/version pairs from get_task, plus optional title,
+            content, due_date, created_at. Omitted fields stay; empty body/date clears.
+        request_id: Unique call ID; reuse only for identical retries.
     """
     with _repair():
-        return ctx.deps.vault.kanban.update_task(
-            board, task, expected_hash, title, content, due_date, created_at
-        ).model_dump()
+        return ctx.deps.vault.kanban.edit_cards(board, cards, request_id).model_dump()
 
 
-def move_task(
+def move_cards(
     ctx: RunContext[Sources],
     board: str,
-    task: str,
-    column: str,
-    expected_hash: str,
-    position: int | None = None,
+    cards: Annotated[list[CardMove], Field(min_length=1, max_length=30)],
+    request_id: str,
 ) -> dict[str, Any]:
-    """Move within one board or reopen an archived task; manages dates and checkbox.
+    """Move a list in order within one board, managing dates and checkboxes.
 
     Args:
-        board: Explicit existing .md board path; cross-file moves are unsupported.
-        task: task_id or entry_id from get_task or find_tasks.
-        column: Destination active column; Doing sets started_at, Completed checks
-            and stamps completed_at; reopening clears completed_at and unchecks.
-        expected_hash: Latest board content_hash; reread on conflict.
-        position: Zero-based destination position after removal; omit to append.
+        board: Explicit .md board path; cross-board moves are unsupported.
+        cards: List of task_id/column pairs, optional from_column precondition
+            and zero-based position. Later moves see earlier ones. All save or none.
+        request_id: Unique call ID; reuse only for identical retries.
     """
     with _repair():
-        return ctx.deps.vault.kanban.move_task(board, task, column, expected_hash, position).model_dump()
+        return ctx.deps.vault.kanban.move_cards(board, cards, request_id).model_dump()
 
 
-def archive_task(ctx: RunContext[Sources], board: str, task: str, expected_hash: str) -> dict[str, Any]:
-    """Archive without deletion, preserving content, dates, ID, and checkbox.
+def archive_cards(
+    ctx: RunContext[Sources],
+    board: str,
+    cards: Annotated[list[CardTarget], Field(min_length=1, max_length=30)],
+    request_id: str,
+) -> dict[str, Any]:
+    """Remove cards from active use while retaining all content in the archive.
 
     Args:
-        board: Explicit vault-relative .md board path.
-        task: task_id or entry_id to archive in the same file.
-        expected_hash: Latest board content_hash; reread on conflict.
+        board: Explicit .md board path.
+        cards: List of 1-30 objects containing task_id; no board hash needed.
+        request_id: Unique call ID; reuse only for identical retries.
     """
     with _repair():
-        return ctx.deps.vault.kanban.archive_task(board, task, expected_hash).model_dump()
+        return ctx.deps.vault.kanban.archive_cards(board, cards, request_id).model_dump()
+
+
+def delete_board(
+    ctx: RunContext[Sources], board: str, confirmation_token: str | None = None
+) -> dict[str, Any]:
+    """Preview deletion, warn the user, then move the board and its cards to trash.
+
+    Args:
+        board: Explicit .md board path; ordinary notes cannot be deleted.
+        confirmation_token: Omit for preview. Warn the user BEFORE executing
+            with the returned token. Changed boards need a fresh preview/warning.
+    """
+    with _repair():
+        return ctx.deps.vault.kanban.delete_board(board, confirmation_token).model_dump()
 
 
 TOOLS = [
@@ -361,10 +358,11 @@ TOOLS = [
     list_notes,
     create_board,
     get_task,
-    add_task,
-    update_task,
-    move_task,
-    archive_task,
+    add_cards,
+    edit_cards,
+    move_cards,
+    archive_cards,
+    delete_board,
 ]
 
 

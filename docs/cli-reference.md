@@ -912,6 +912,12 @@ api = Bedrock(Settings.from_env())
 | `find_kanban_cards(...)` | `kanban find` |
 | `export_graph()` | `graph export` |
 
+Kanban mutation operations are available through `bedrock.kanban` in Python and
+through MCP: `create_board`, `add_cards`, `edit_cards`, `move_cards`,
+`archive_cards`, `delete_board`, plus the `get_task` reader. Card mutations
+accept lists of 1–30 items in one board and return Pydantic result models.
+There are no mutation CLI subcommands. See [the MCP editing contract](mcp.md#kanban-editing).
+
 Library methods return frozen typed dataclasses or tuples of them. Aggregate
 response contracts provide `to_dict()`; individual `Link` and `IndexWarning`
 values are compatible with `dataclasses.asdict()`.

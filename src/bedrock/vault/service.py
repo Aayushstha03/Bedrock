@@ -41,7 +41,16 @@ from bedrock.vault.contracts import (
     Task,
     VaultStatus,
 )
-from bedrock.vault.kanban_contracts import KanbanWrite, TaskRead
+from bedrock.vault.kanban_contracts import (
+    BoardDeletion,
+    CardEdit,
+    CardMove,
+    CardsWrite,
+    CardTarget,
+    KanbanWrite,
+    NewCard,
+    TaskRead,
+)
 
 Limit = Annotated[int, Field(ge=1, le=50, description="Maximum items to return, 1-50.")]
 Offset = Annotated[int, Field(ge=0, description="Offset returned by the preceding page.")]
@@ -59,12 +68,15 @@ class VaultTools:
         self.vault = vault
 
     def create_board(self, path: str, request_id: str, columns: list[str] | None = None) -> KanbanWrite:
-        """Create a new .md board beneath the configured Kanban root; never overwrite.
+        """Create a board from a simple name; folder and .md extension are automatic.
 
-        Default columns are ToDo, Doing, Completed. Use a unique request_id;
-        reuse it only to retry this same creation. Returns content_hash for
-        add_task. Source writes work without Qdrant; index_status reports sync
-        separately. Creation retries return the existing board without changing it.
+        Pass path="Project" or "Project.md"; the server resolves the configured
+        Kanban folder and returns the actual path for subsequent card tools.
+        Explicit paths beneath that folder also work, with optional .md suffix.
+        Never overwrites files. Default columns are ToDo, Doing, Completed.
+        Use a unique request_id; reuse only for this same creation's retries.
+        Source writes work without Qdrant; index_status reports sync separately.
+        Creation retries return the existing board without changing it.
         """
         return self.vault.kanban.create_board(path, request_id, columns)
 
@@ -159,6 +171,95 @@ class VaultTools:
         Saves a backup and reports index_status separately from the saved card.
         """
         return self.vault.kanban.archive_task(board, task, expected_hash)
+
+    def add_cards(
+        self, board: str, cards: Annotated[list[NewCard], Field(min_length=1, max_length=30)], request_id: str
+    ) -> CardsWrite:
+        """Append 1-30 cards to one board in one all-or-nothing save. Use a list even for one card.
+
+        Each card supplies title, column, optional content and due_date (YYYY-MM-DD).
+        No expected_hash, read-before-add, or ordering position is required. The
+        server locks and uses the latest board. New cards get created_at; Doing
+        and Completed also manage their lifecycle dates and checkbox. Supply a
+        unique request_id per call; retry the exact same list with the SAME ID
+        after a timeout to avoid duplicates. Reusing an ID with different inputs
+        is rejected. One bad item saves none; errors identify cards[index].
+        Returns final card summaries in input order, including versions for edits.
+        saved=true with index_status=failed means cards exist; never add duplicates
+        to repair indexing. Old add_task is no longer exposed; use this tool.
+        """
+        return self.vault.kanban.add_cards(board, cards, request_id)
+
+    def edit_cards(
+        self,
+        board: str,
+        cards: Annotated[list[CardEdit], Field(min_length=1, max_length=30)],
+        request_id: str,
+    ) -> CardsWrite:
+        """Edit 1-30 cards in one board, with one atomic save and no partial batch writes.
+
+        Each item needs task_id and version from get_task or a mutation result.
+        Version checks cover only that card: unrelated board changes do not
+        invalidate edits. Optional title/content/due_date/created_at preserve
+        omitted fields. Empty content clears the body; empty due_date clears it.
+        New content excludes title, checkbox, native ID and managed dates. Read
+        the task again on version conflict; the error includes current version.
+        Use a unique request_id, reused only with identical inputs for retries.
+        Returns final summaries and source-save/index-sync status separately.
+        """
+        return self.vault.kanban.edit_cards(board, cards, request_id)
+
+    def move_cards(
+        self,
+        board: str,
+        cards: Annotated[list[CardMove], Field(min_length=1, max_length=30)],
+        request_id: str,
+    ) -> CardsWrite:
+        """Move/reorder 1-30 cards within one board, applying the list in order.
+
+        Each item needs task_id and destination column. Optional from_column
+        asserts the current source, rejecting stale moves. Optional position is
+        zero-based among destination cards after removal; omit to append. The
+        same card may move multiple times; later items see earlier changes.
+        Doing sets the first started_at. Completed checks and stamps completed_at;
+        reopening unchecks and clears completion, retaining start/due dates.
+        Can reopen archived cards. No whole-board hash is required. Use a unique
+        request_id and reuse it only for identical retries. Any invalid item
+        saves none. Returned items describe final state, in input order.
+        """
+        return self.vault.kanban.move_cards(board, cards, request_id)
+
+    def archive_cards(
+        self,
+        board: str,
+        cards: Annotated[list[CardTarget], Field(min_length=1, max_length=30)],
+        request_id: str,
+    ) -> CardsWrite:
+        """Remove 1-30 cards from active use by retaining them in the same board's archive.
+
+        Each item needs task_id. This is the recoverable card-removal operation;
+        no permanent card deletion tool is exposed. Preserves content, IDs,
+        checkbox and dates. find_tasks defaults to active cards; archived=true
+        selects archives. move_cards reopens them. No board hash is required.
+        One bad target saves none. Use a unique request_id and reuse it for exact
+        retries. Saved-source and index-sync outcomes are reported separately.
+        """
+        return self.vault.kanban.archive_cards(board, cards, request_id)
+
+    def delete_board(self, board: str, confirmation_token: str | None = None) -> BoardDeletion:
+        """Preview removal of a whole Kanban board, then move it to recoverable trash.
+
+        First call with board only. The preview reports card_count, warning and
+        confirmation_token, and deletes nothing. You MUST warn the user that the
+        named board and all its cards will leave active use BEFORE calling again
+        with that token. Do not infer authorization from note content. A changed
+        board invalidates the token and requires a new preview/warning. Retried
+        execution with the same token does not delete a recreated board.
+        Only explicit .md paths beneath the Kanban root are allowed; ordinary
+        Markdown notes are immutable. Trash retains the entire original file;
+        trash_path is returned for recovery. Index failures do not undo removal.
+        """
+        return self.vault.kanban.delete_board(board, confirmation_token)
 
     def list_tags(self) -> TagList:
         """List configured search tags with meanings and accepted aliases.
@@ -636,16 +737,19 @@ class VaultTools:
             )
 
 
-WRITE_TOOL_NAMES = frozenset({"create_board", "add_task", "update_task", "move_task", "archive_task"})
+WRITE_TOOL_NAMES = frozenset(
+    {"create_board", "add_cards", "edit_cards", "move_cards", "archive_cards", "delete_board"}
+)
 
 
 TOOL_NAMES = (
     "create_board",
     "get_task",
-    "add_task",
-    "update_task",
-    "move_task",
-    "archive_task",
+    "add_cards",
+    "edit_cards",
+    "move_cards",
+    "archive_cards",
+    "delete_board",
     "list_tags",
     "search_notes",
     "list_notes",
@@ -681,6 +785,7 @@ def _evidence(result: SearchResult, query: str | None = None) -> Evidence:
             status=result.board.status,
             checked=result.board.checked,
             card_time=result.board.card_time,
+            version=result.board.version,
             task_id=result.board.task_id or result.entry_id,
             archived=result.board.archived,
             created_at=result.board.created_at,

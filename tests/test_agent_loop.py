@@ -91,10 +91,11 @@ EVERY_TOOL = {
     "list_notes",
     "create_board",
     "get_task",
-    "add_task",
-    "update_task",
-    "move_task",
-    "archive_task",
+    "add_cards",
+    "edit_cards",
+    "move_cards",
+    "archive_cards",
+    "delete_board",
 }
 
 
@@ -132,53 +133,68 @@ def test_every_tool_is_declared_and_succeeds_in_a_real_agent_run(settings, vault
         if "create_board" not in done:
             return _call("create_board", {"path": "kanban/Agent Playground.md", "request_id": "agent-board"})
         created = _payload(_returns(messages, "create_board")[0])
-        if "add_task" not in done:
+        if "add_cards" not in done:
             return _call(
-                "add_task",
+                "add_cards",
                 {
                     "board": created["path"],
-                    "column": "ToDo",
-                    "title": "Agent experiment",
-                    "expected_hash": created["content_hash"],
+                    "cards": [{"column": "ToDo", "title": "Agent experiment", "due_date": "2026-10-20"}],
                     "request_id": "agent-task",
-                    "due_date": "2026-10-20",
                 },
             )
-        added = _payload(_returns(messages, "add_task")[0])
-        task_id = added["task"]["task_id"]
+        added = _payload(_returns(messages, "add_cards")[0])
+        task_id = added["items"][0]["task_id"]
         if "get_task" not in done:
             return _call("get_task", {"board": created["path"], "task": task_id})
         read = _payload(_returns(messages, "get_task")[0])
-        if "update_task" not in done:
+        if "edit_cards" not in done:
             return _call(
-                "update_task",
+                "edit_cards",
                 {
                     "board": created["path"],
-                    "task": task_id,
-                    "expected_hash": read["content_hash"],
-                    "content": "- Real agent tool update",
+                    "cards": [
+                        {
+                            "task_id": task_id,
+                            "version": read["task"]["version"],
+                            "content": "- Real agent tool update",
+                        }
+                    ],
+                    "request_id": "edit",
                 },
             )
-        changed = _payload(_returns(messages, "update_task")[0])
-        if "move_task" not in done:
+        if "move_cards" not in done:
             return _call(
-                "move_task",
+                "move_cards",
                 {
                     "board": created["path"],
-                    "task": task_id,
-                    "column": "Completed",
-                    "expected_hash": changed["content_hash"],
+                    "cards": [{"task_id": task_id, "column": "Completed"}],
+                    "request_id": "move",
                 },
             )
-        moved = _payload(_returns(messages, "move_task")[0])
-        if "archive_task" not in done:
+        if "archive_cards" not in done:
             return _call(
-                "archive_task",
-                {"board": created["path"], "task": task_id, "expected_hash": moved["content_hash"]},
+                "archive_cards",
+                {"board": created["path"], "cards": [{"task_id": task_id}], "request_id": "archive"},
             )
-        archived = _payload(_returns(messages, "archive_task")[0])
-        assert archived["task"]["archived"] and archived["task"]["checked"]
-        assert archived["task"]["completed_at"] and archived["index_status"] == "updated"
+        archived = _payload(_returns(messages, "archive_cards")[0])
+        assert archived["items"][0]["archived"] and archived["items"][0]["checked"]
+        assert archived["items"][0]["completed_at"] and archived["index_status"] == "updated"
+        if "delete_board" not in done:
+            return _call("delete_board", {"board": created["path"]})
+        deletions = _returns(messages, "delete_board")
+        if len(deletions) == 1:
+            preview = _payload(deletions[0])
+            assert preview["status"] == "preview"
+            return ModelResponse(
+                parts=[
+                    TextPart(preview["warning"]),
+                    ToolCallPart(
+                        "delete_board",
+                        {"board": created["path"], "confirmation_token": preview["confirmation_token"]},
+                    ),
+                ]
+            )
+        assert _payload(deletions[-1])["status"] == "deleted"
         return ModelResponse(parts=[TextPart("done")])
 
     agent = build_agent(settings, model=FunctionModel(script))

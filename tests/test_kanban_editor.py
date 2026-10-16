@@ -164,7 +164,7 @@ def test_reordering_keeps_every_other_card(vault: Bedrock):
     [
         "../outside.md",
         "/absolute.md",
-        "Notes.md",
+        "Other/Notes.md",
         "kanban/../Notes.md",
         "kanban/not-markdown.txt",
         "kanban/.obsidian/hidden.md",
@@ -365,71 +365,67 @@ def test_real_mcp_editing_session_and_date_filters(vault: Bedrock, monkeypatch):
                 return result.structuredContent
 
             board = await call("create_board", {"path": "kanban/Protocol.md", "request_id": "board"})
-            task = await call(
-                "add_task",
+            added = await call(
+                "add_cards",
                 {
                     "board": board["path"],
-                    "column": "ToDo",
-                    "title": "Protocol task",
-                    "expected_hash": board["content_hash"],
+                    "cards": [{"title": "Protocol task", "column": "ToDo", "due_date": "2026-10-20"}],
                     "request_id": "task",
-                    "due_date": "2026-10-20",
                 },
             )
-            task_id = task["task"]["task_id"]
+            task_id = added["items"][0]["task_id"]
             read = await call("get_task", {"board": board["path"], "task": task_id})
-            changed = await call(
-                "update_task",
+            await call(
+                "edit_cards",
                 {
                     "board": board["path"],
-                    "task": task_id,
-                    "expected_hash": read["content_hash"],
-                    "content": "- Kept as nested content",
+                    "cards": [
+                        {
+                            "task_id": task_id,
+                            "version": read["task"]["version"],
+                            "content": "- Kept as nested content",
+                        }
+                    ],
+                    "request_id": "edit",
                 },
             )
-            for column in ("Doing", "Completed"):
-                changed = await call(
-                    "move_task",
-                    {
-                        "board": board["path"],
-                        "task": task_id,
-                        "column": column,
-                        "expected_hash": changed["content_hash"],
-                    },
-                )
-            assert (
-                changed["task"]["checked"]
-                and changed["task"]["started_at"]
-                and changed["task"]["completed_at"]
+            changed = await call(
+                "move_cards",
+                {
+                    "board": board["path"],
+                    "cards": [{"task_id": task_id, "column": column} for column in ("Doing", "Completed")],
+                    "request_id": "move",
+                },
             )
+            task = changed["items"][0]
+            assert task["checked"] and task["started_at"] and task["completed_at"]
             page = await call(
                 "find_tasks",
                 {
                     "due_date_from": "2026-10-20",
                     "due_date_to": "2026-10-20",
-                    "completed_at_from": changed["task"]["completed_at"],
+                    "completed_at_from": task["completed_at"],
                 },
             )
-            assert len(page["items"]) == 1
+            assert len(page["items"]) == 1 and page["items"][0]["task"]["version"] == task["version"]
             archived = await call(
-                "archive_task",
-                {"board": board["path"], "task": task_id, "expected_hash": changed["content_hash"]},
+                "archive_cards",
+                {"board": board["path"], "cards": [{"task_id": task_id}], "request_id": "archive"},
             )
-            assert archived["task"]["archived"]
+            assert archived["items"][0]["archived"]
             assert (await call("find_tasks", {}))["items"] == []
             assert len((await call("find_tasks", {"archived": True}))["items"]) == 1
             conflict = await client.call_tool(
-                "move_task",
+                "move_cards",
                 {
                     "board": board["path"],
-                    "task": task_id,
-                    "column": "Doing",
-                    "expected_hash": changed["content_hash"],
+                    "cards": [{"task_id": task_id, "from_column": "Completed", "column": "Doing"}],
+                    "request_id": "stale-source",
                 },
             )
             assert conflict.isError
 
-    asyncio.run(asyncio.wait_for(exercise(), timeout=10))
+    asyncio.run(asyncio.wait_for(exercise(), timeout=15))
 
 
 @pytest.mark.parametrize("column", ["on progress", "Working"])

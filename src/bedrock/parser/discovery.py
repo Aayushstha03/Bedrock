@@ -9,6 +9,8 @@ from bedrock.core.contracts import NoteType
 from bedrock.core.identity import normalize_vault_path
 from bedrock.parser.markdown import valid_iso_date
 
+INTERNAL_DIRECTORIES = frozenset({".bedrock-state", ".bedrock-backups", ".bedrock-trash"})
+
 
 def classify_path(relative_path: str, settings: Settings) -> NoteType:
     """Classify one note by where it sits, and by what it is called.
@@ -35,7 +37,7 @@ def classify_path(relative_path: str, settings: Settings) -> NoteType:
 
 def discover_markdown(settings: Settings, requested: list[str] | None = None) -> tuple[Path, ...]:
     vault = settings.vault_path.resolve()
-    excluded = {name.casefold() for name in settings.excluded_directories}
+    excluded = {name.casefold() for name in settings.excluded_directories} | INTERNAL_DIRECTORIES
     excluded_files = {name.casefold() for name in settings.excluded_files}
     if requested:
         candidates = [vault / normalize_vault_path(path) for path in requested]

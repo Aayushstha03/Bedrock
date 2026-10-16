@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import unicodedata
 from pathlib import PurePosixPath
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -32,3 +33,9 @@ def entry_id(note: UUID | str, entry_type: str, structural_key: str) -> UUID:
         raise ValueError("entry_type and structural_key cannot be empty")
     key = f"bedrock:v{IDENTITY_VERSION}:entry:{note}:{entry_type}:{structural_key}"
     return uuid5(NAMESPACE_URL, key)
+
+
+def kanban_card_version(column: str, archived: bool, markdown: str) -> str:
+    """Version one card's source and column, independent of other cards."""
+    raw = markdown.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+    return hashlib.sha256(f"{column}\x00{archived}\x00{raw}".encode()).hexdigest()

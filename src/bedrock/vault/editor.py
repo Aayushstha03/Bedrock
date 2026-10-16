@@ -20,7 +20,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 import yaml
 
 from bedrock.core.contracts import ParsedEntry
-from bedrock.core.identity import normalize_vault_path
+from bedrock.core.identity import kanban_card_version, normalize_vault_path
 from bedrock.core.task_dates import TASK_DATE_FIELDS, task_date_value
 from bedrock.parser.discovery import discover_markdown
 from bedrock.parser.kanban import canonical_status, parse_settings
@@ -54,6 +54,7 @@ class KanbanEditor:
 
     def create_board(self, path: str, request_id: str, columns: list[str] | None = None) -> KanbanWrite:
         request_id = _request(request_id)
+        path = self._creation_path(path)
         destination = self._path(path)
         names = columns if columns is not None else ["ToDo", "Doing", "Completed"]
         if not names or len(names) > 30:
@@ -63,7 +64,7 @@ class KanbanEditor:
             raise ValueError("Column names must be unique, ignoring case")
         if any(name.casefold() == "archive" for name in names):
             raise ValueError("Archive is reserved for the plugin's archive section")
-        with _locked(destination):
+        with self._lock(destination):
             if destination.exists():
                 board = self._load(path)
                 frontmatter = parse_frontmatter(board.raw.decode("utf-8"))
@@ -106,7 +107,7 @@ class KanbanEditor:
             uuid5(NAMESPACE_URL, f"{self.vault.vault_id}:{normalize_vault_path(board)}:{request_id}")
         )
         due = task_date_value("due_date", due_date) if due_date is not None else None
-        with _locked(self._path(board)):
+        with self._lock(self._path(board)):
             loaded = self._load(board)
             if any(span.block_id == task_id for col in loaded.columns for span in col.cards):
                 return self._result(loaded, task_id, replayed=True)
@@ -147,7 +148,7 @@ class KanbanEditor:
             _body(content)
         due = task_date_value("due_date", due_date) if due_date else None
         created = task_date_value("created_at", created_at) if created_at is not None else None
-        with _locked(self._path(board)):
+        with self._lock(self._path(board)):
             loaded = self._load(board)
             _revision(loaded, expected_hash)
             column, span, entry = self._task(loaded, task)
@@ -185,7 +186,7 @@ class KanbanEditor:
         expected_hash: str,
         position: int | None = None,
     ) -> KanbanWrite:
-        with _locked(self._path(board)):
+        with self._lock(self._path(board)):
             loaded = self._load(board)
             _revision(loaded, expected_hash)
             source, span, _entry = self._task(loaded, task)
@@ -204,7 +205,7 @@ class KanbanEditor:
             return self._relocate(loaded, span, target, card, task_id, position)
 
     def archive_task(self, board: str, task: str, expected_hash: str) -> KanbanWrite:
-        with _locked(self._path(board)):
+        with self._lock(self._path(board)):
             loaded = self._load(board)
             _revision(loaded, expected_hash)
             column, span, entry = self._task(loaded, task)
@@ -225,16 +226,39 @@ class KanbanEditor:
             ).splitlines(keepends=True)
             return self._commit(loaded, "".join(lines), task_id, span)
 
+    def _lock(self, path: Path):
+        root = self.vault.settings.vault_path.resolve() / self.vault.settings.kanban_root
+        return _locked(path, root)
+
+    def _creation_path(self, value: str) -> str:
+        """Accept a board name while preserving explicit, scoped path support."""
+        raw = value.strip()
+        if not raw or any(ord(char) < 32 or ord(char) == 127 for char in raw):
+            raise ValueError("Provide a nonempty board name without control characters")
+        relative = Path(normalize_vault_path(raw))
+        root = self.vault.settings.kanban_root
+        if len(relative.parts) == 1:
+            relative = Path(root) / relative
+        elif not relative.parts or relative.parts[0] != root:
+            raise ValueError(f"Use a plain board name, or an explicit path beneath {root}/")
+        if not relative.name or relative.name in {".", "..", ".md"}:
+            raise ValueError("Provide a board name before the optional .md extension")
+        if not relative.suffix:
+            relative = relative.with_name(relative.name + ".md")
+        elif relative.suffix != ".md":
+            raise ValueError("Provide a board name with no extension or with .md")
+        return relative.as_posix()
+
     def _path(self, raw: str) -> Path:
         relative = Path(normalize_vault_path(raw))
         settings = self.vault.settings
-        if (
-            relative.suffix != ".md"
-            or len(relative.parts) < 2
-            or relative.parts[0].casefold() != settings.kanban_root.casefold()
-        ):
+        if relative.suffix != ".md" or len(relative.parts) < 2 or relative.parts[0] != settings.kanban_root:
             raise ValueError(f"Use an explicit .md path beneath {settings.kanban_root}/")
-        excluded = {name.casefold() for name in settings.excluded_directories}
+        excluded = {name.casefold() for name in settings.excluded_directories} | {
+            ".bedrock-state",
+            ".bedrock-trash",
+            ".bedrock-backups",
+        }
         if any(part.casefold() in excluded for part in relative.parts[:-1]) or relative.name.casefold() in {
             name.casefold() for name in settings.excluded_files
         }:
@@ -260,6 +284,13 @@ class KanbanEditor:
         if not discover_markdown(self.vault.settings, [name]):
             raise ValueError("Board is unavailable or excluded")
         raw = path.read_bytes()
+        board = self._parse(name, raw)
+        if path.read_bytes() != raw:
+            raise ValueError("Board changed while reading; reread before editing")
+        return board
+
+    def _parse(self, name: str, raw: bytes) -> _Board:
+        path = self._path(name)
         text = raw.decode("utf-8")
         lines = text.splitlines(keepends=True)
         frontmatter = parse_frontmatter(text, name)
@@ -281,7 +312,9 @@ class KanbanEditor:
         ids = [card.block_id for col in columns for card in col.cards if card.block_id]
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate card block IDs; repair the board before editing")
-        parsed = VaultParser(self.vault.settings, self.vault.vault_id).parse_file(path)
+        parsed = VaultParser(self.vault.settings, self.vault.vault_id).parse_content(
+            name, text.replace("\r\n", "\n").replace("\r", "\n")
+        )
         if parsed.content_hash != _hash(raw):
             raise ValueError("Board changed while reading; reread before editing")
         entries = parsed.entries
@@ -344,6 +377,7 @@ class KanbanEditor:
             raise ValueError("Task exceeds the editing limit; use paginated read_note")
         return EditableTask(
             task_id=span.block_id or entry.entry_id,
+            version=_card_version(board, column, span),
             entry_id=entry.entry_id,
             board=board.relative,
             column=column.name,
@@ -421,6 +455,13 @@ class KanbanEditor:
     def _commit(self, board: _Board, text: str, task_id: str, edited: CardSpan | None = None) -> KanbanWrite:
         if board.path.read_bytes() != board.raw:
             raise ValueError("Board changed during editing; get_task/read_note again before retrying")
+        self._validate_transition(board, text, task_id, edited)
+        backup = self._backup(board)
+        self._save(board.path, text.encode("utf-8"), board.raw)
+        return self._result(self._load(board.relative), task_id, backup=backup)
+
+    @staticmethod
+    def _validate_transition(board: _Board, text: str, task_id: str, edited: CardSpan | None) -> None:
         # Validate the proposed structure before replacing any source file.
         columns = board_columns(
             markdown_tokens(text),
@@ -445,9 +486,6 @@ class KanbanEditor:
             or untouched - proposed
         ):
             raise ValueError("Edit would lose or alter another task; no changes saved")
-        backup = self._backup(board)
-        self._save(board.path, text.encode("utf-8"), board.raw)
-        return self._result(self._load(board.relative), task_id, backup=backup)
 
     @staticmethod
     def _backup(board: _Board) -> str:
@@ -486,6 +524,11 @@ class KanbanEditor:
                 if path.is_symlink() or path.read_bytes() != original:
                     raise ValueError("Board changed before saving; reread before retrying")
                 os.replace(temporary, path)
+            directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -571,17 +614,35 @@ def _status(column: ColumnSpan) -> str | None:
 
 
 @contextmanager
-def _locked(path: Path) -> Iterator[None]:
-    directory = Path(tempfile.gettempdir()) / f"bedrock-kanban-locks-{os.getuid()}"
+def _locked(path: Path, root: Path) -> Iterator[None]:
+    directory = _internal_directory(root, ".bedrock-state", "locks")
     if directory.is_symlink():
         raise ValueError("Lock directory cannot be a symlink")
     directory.mkdir(mode=0o700, exist_ok=True)
     if directory.stat().st_uid != os.getuid():
         raise ValueError("Lock directory belongs to another user")
-    name = hashlib.sha256(str(path).encode()).hexdigest()
+    name = hashlib.sha256(path.relative_to(root).as_posix().encode()).hexdigest()
     descriptor = os.open(directory / name, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield
     finally:
         os.close(descriptor)
+
+
+def _internal_directory(root: Path, *parts: str) -> Path:
+    current = root
+    if current.is_symlink():
+        raise ValueError("Internal storage root cannot be a symlink")
+    current.mkdir(parents=True, exist_ok=True)
+    for part in parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError("Internal storage directories cannot be symlinks")
+        current.mkdir(mode=0o700, exist_ok=True)
+    return current
+
+
+def _card_version(board: _Board, column: ColumnSpan, span: CardSpan) -> str:
+    raw = "".join(board.lines[span.start : span.end])
+    return kanban_card_version(column.name, column.archived, raw)

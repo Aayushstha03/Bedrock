@@ -13,6 +13,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from bedrock.core.config import Settings
+from bedrock.parser.discovery import INTERNAL_DIRECTORIES
 
 ChangeCallback = Callable[[tuple[str, ...]], None]
 ErrorCallback = Callable[[BaseException], None]
@@ -154,7 +155,7 @@ class MarkdownChangeHandler(FileSystemEventHandler):
             relative = path.resolve().relative_to(self.settings.vault_path.resolve())
         except ValueError:
             return None
-        excluded = {name.casefold() for name in self.settings.excluded_directories}
+        excluded = {name.casefold() for name in self.settings.excluded_directories} | INTERNAL_DIRECTORIES
         if any(part.casefold() in excluded for part in relative.parts[:-1]):
             return None
         if relative.name.casefold() in {name.casefold() for name in self.settings.excluded_files}:
@@ -166,7 +167,7 @@ class MarkdownChangeHandler(FileSystemEventHandler):
             relative = Path(raw_path).resolve().relative_to(self.settings.vault_path.resolve())
         except ValueError:
             return False
-        excluded = {name.casefold() for name in self.settings.excluded_directories}
+        excluded = {name.casefold() for name in self.settings.excluded_directories} | INTERNAL_DIRECTORIES
         return not any(part.casefold() in excluded for part in relative.parts)
 
 
