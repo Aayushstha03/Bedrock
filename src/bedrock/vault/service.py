@@ -85,7 +85,9 @@ class VaultTools:
 
         board must be an explicit vault-relative .md path. task accepts the
         task_id or entry_id returned by find_tasks, including archived cards.
-        Read before editing; pass this content_hash as expected_hash on writes.
+        First resolve board via list_boards and copy its full path, including folders
+        and .md; never guess a path from the title. Read before edit_cards and
+        use task.task_id and task.version; batch writes do not use content_hash.
         content excludes title, native block ID, and managed date block. markdown
         retains the original source. Works without Qdrant or an embedding model.
         """
@@ -178,7 +180,15 @@ class VaultTools:
         """Append 1-30 cards to one board in one all-or-nothing save. Use a list even for one card.
 
         Each card supplies title, column, optional content and due_date (YYYY-MM-DD).
-        No expected_hash, read-before-add, or ordering position is required. The
+        First call list_boards to locate the existing board and its columns;
+        follow next_offset while has_more if needed. Copy its returned path
+        verbatim into board: the full vault-relative path, including folders
+        and .md, not a title, note_id, absolute filesystem path, or guessed folder.
+        Use an exact returned column name. If the target is ambiguous, ask the
+        user which board; create_board only when a new board is requested, then
+        use its returned path and columns. A verified path/columns already
+        returned in this conversation can be reused.
+        No expected_hash, card read, or ordering position is required. The
         server locks and uses the latest board. New cards get created_at; Doing
         and Completed also manage their lifecycle dates and checkbox. Supply a
         unique request_id per call; retry the exact same list with the SAME ID
@@ -198,6 +208,12 @@ class VaultTools:
     ) -> CardsWrite:
         """Edit 1-30 cards in one board, with one atomic save and no partial batch writes.
 
+        First locate the board with list_boards; follow next_offset while
+        has_more if needed. Copy the returned full vault-relative path (folders
+        and .md included) into board, never a title, note_id, absolute path, or
+        guessed folder. Reuse a verified path already returned in this conversation.
+        Find the target cards with find_tasks(board=that_path), then get_task
+        with that same path and each returned task_id or entry_id to read them.
         Each item needs task_id and version from get_task or a mutation result.
         Version checks cover only that card: unrelated board changes do not
         invalidate edits. Optional title/content/due_date/created_at preserve
@@ -217,6 +233,12 @@ class VaultTools:
     ) -> CardsWrite:
         """Move/reorder 1-30 cards within one board, applying the list in order.
 
+        First locate the board with list_boards; follow next_offset while
+        has_more if needed. Copy the returned full vault-relative path (folders
+        and .md included) into board, never a title, note_id, absolute path, or
+        guessed folder. Reuse a verified path already returned in this conversation.
+        Find the target cards with find_tasks(board=that_path), then get_task
+        with that same path and each returned task_id or entry_id to read them.
         Each item needs task_id and destination column. Optional from_column
         asserts the current source, rejecting stale moves. Optional position is
         zero-based among destination cards after removal; omit to append. The
@@ -237,6 +259,12 @@ class VaultTools:
     ) -> CardsWrite:
         """Remove 1-30 cards from active use by retaining them in the same board's archive.
 
+        First locate the board with list_boards; follow next_offset while
+        has_more if needed. Copy the returned full vault-relative path (folders
+        and .md included) into board, never a title, note_id, absolute path, or
+        guessed folder. Reuse a verified path already returned in this conversation.
+        Find the target cards with find_tasks(board=that_path), then get_task
+        with that same path and each returned task_id or entry_id to read them.
         Each item needs task_id. This is the recoverable card-removal operation;
         no permanent card deletion tool is exposed. Preserves content, IDs,
         checkbox and dates. find_tasks defaults to active cards; archived=true
@@ -506,7 +534,7 @@ class VaultTools:
         )
 
     def list_boards(self, limit: Limit = 20, offset: Offset = 0) -> BoardPage:
-        """Discover Kanban boards and their real column names before filtering tasks.
+        """Discover Kanban boards and their real column names before adding, editing, moving, archiving, or filtering tasks.
 
         Returns board note_id, path, title, columns, and indexed_cards, including
         empty boards/columns. Pass the note_id/path as find_tasks.board to avoid

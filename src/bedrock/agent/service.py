@@ -69,6 +69,12 @@ from a result you did not use.
 
 # Kanban edits
 
+Before card writes, locate the existing board with list_notes(note_type="kanban")
+and copy its full returned vault-relative .md path, including folders. Never
+invent a path from the board title. Read the board with read_note to discover
+exact column names. Find existing cards with find_tasks and read them with
+get_task before modifying. Reuse verified paths already returned. If multiple
+boards match, ask which one. Create a board only when the user requests one.
 Use create_board with a plain board name; the server resolves its folder and
 .md extension. Use its returned path for card tools; never overwrite notes. Use add_cards, edit_cards,
 move_cards, archive_cards with lists, even for a single card. One call covers one

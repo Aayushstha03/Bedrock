@@ -256,6 +256,12 @@ def create_board(
 def get_task(ctx: RunContext[Sources], board: str, task: str) -> dict[str, Any]:
     """Read a complete card and board revision before editing.
 
+    First locate the board with list_notes(note_type="kanban"); follow
+    next_offset while has_more if needed. Copy its returned full vault-relative
+    path, including all folders and .md, into board. Never guess the folder or
+    pass a title, source label, or absolute filesystem path. Reuse a verified
+    path already returned in this conversation.
+
     Args:
         board: Explicit vault-relative .md board path.
         task: Returned task_id, entry_id, or source label such as s1.
@@ -273,6 +279,16 @@ def add_cards(
 ) -> dict[str, Any]:
     """Append one or more cards with no board hash; save the entire list once.
 
+    First locate the board with list_notes(note_type="kanban"); follow
+    next_offset while has_more if needed. Copy its returned full vault-relative
+    path, including all folders and .md, into board. Never guess the folder or
+    pass a title, source label, or absolute filesystem path. Reuse a verified
+    path already returned in this conversation.
+    Read the board with read_note(name=that_path) to discover exact column
+    names, including on empty boards. Use create_board only when a new board
+    is requested, then reuse its returned path and columns. Ask the user to
+    choose if multiple boards match.
+
     Args:
         board: Explicit .md path beneath the configured Kanban root.
         cards: List of 1-30 objects with title, column, optional content and due_date.
@@ -289,6 +305,14 @@ def edit_cards(
     request_id: str,
 ) -> dict[str, Any]:
     """Edit a list atomically, checking only each affected card's version.
+
+    First locate the board with list_notes(note_type="kanban"); follow
+    next_offset while has_more if needed. Copy its returned full vault-relative
+    path, including all folders and .md, into board. Never guess the folder or
+    pass a title, source label, or absolute filesystem path. Reuse a verified
+    path already returned in this conversation.
+    Find the cards with find_tasks(board=that_path), then read each with
+    get_task using the same path and returned task identifier before modifying.
 
     Args:
         board: Explicit .md board path.
@@ -308,6 +332,14 @@ def move_cards(
 ) -> dict[str, Any]:
     """Move a list in order within one board, managing dates and checkboxes.
 
+    First locate the board with list_notes(note_type="kanban"); follow
+    next_offset while has_more if needed. Copy its returned full vault-relative
+    path, including all folders and .md, into board. Never guess the folder or
+    pass a title, source label, or absolute filesystem path. Reuse a verified
+    path already returned in this conversation.
+    Find the cards with find_tasks(board=that_path), then read each with
+    get_task using the same path and returned task identifier before modifying.
+
     Args:
         board: Explicit .md board path; cross-board moves are unsupported.
         cards: List of task_id/column pairs, optional from_column precondition
@@ -325,6 +357,14 @@ def archive_cards(
     request_id: str,
 ) -> dict[str, Any]:
     """Remove cards from active use while retaining all content in the archive.
+
+    First locate the board with list_notes(note_type="kanban"); follow
+    next_offset while has_more if needed. Copy its returned full vault-relative
+    path, including all folders and .md, into board. Never guess the folder or
+    pass a title, source label, or absolute filesystem path. Reuse a verified
+    path already returned in this conversation.
+    Find the cards with find_tasks(board=that_path), then read each with
+    get_task using the same path and returned task identifier before modifying.
 
     Args:
         board: Explicit .md board path.

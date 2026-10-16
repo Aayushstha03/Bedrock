@@ -34,6 +34,7 @@ def build_server(service: VaultTools, *, host: str = "127.0.0.1", port: int = 80
             "vault_status diagnoses availability/freshness. create_board accepts a simple board name and resolves its folder and .md extension automatically; "
             "get_task reads a full card and its version; add_cards, edit_cards, move_cards, "
             "archive_cards edit lists of 1-30 cards in one board per call. delete_board first previews; warn the user before executing with its token. Never overwrite a board to create one. "
+            "Before card writes, call list_boards to resolve the board and exact columns; copy its full vault-relative .md path into board, never guess it from a title. Reuse a verified returned path when available. Find existing cards with find_tasks and read them with get_task before modifying. "
             "No whole-board hash is needed for card batches. edit_cards needs each affected card version; on conflict reread get_task. Reuse request_id "
             "only for retries with identical arguments. Saved writes can have index_status=failed; do not duplicate "
             "a saved task to repair indexing. Move only between columns in the same file. "
