@@ -33,7 +33,7 @@ from bedrock.parser.markdown import (
 )
 from bedrock.parser.tokens import content_budget, estimate_tokens
 
-PARSER_VERSION = "3.3.0"
+PARSER_VERSION = "3.5.0"
 
 
 class VaultParser:

@@ -37,6 +37,7 @@ from bedrock.parser.discovery import discover_markdown
 from bedrock.parser.service import VaultParser
 from bedrock.retrieval.context import ContextExpander
 from bedrock.retrieval.service import Retriever
+from bedrock.vault.editor import KanbanEditor
 
 
 class Bedrock:
@@ -52,6 +53,7 @@ class Bedrock:
         self.vault_id = vault_id
         self.client = client or QdrantClient(url=settings.qdrant_url)
         self.encoders = encoders
+        self.kanban = KanbanEditor(self)
         self._notes: tuple[ParsedNote, ...] | None = None
         self._resolved: tuple[ParsedNote, ...] | None = None
         self._fingerprint: tuple[tuple[str, int, int], ...] | None = None
@@ -320,9 +322,18 @@ class Bedrock:
         columns: tuple[str, ...] = (),
         statuses: tuple[str, ...] = (),
         checked: bool | None = None,
+        archived: bool | None = False,
         tags: tuple[str, ...] = (),
         date_from: str | None = None,
         date_to: str | None = None,
+        created_at_from: str | None = None,
+        created_at_to: str | None = None,
+        started_at_from: str | None = None,
+        started_at_to: str | None = None,
+        completed_at_from: str | None = None,
+        completed_at_to: str | None = None,
+        due_date_from: str | None = None,
+        due_date_to: str | None = None,
         exact_text: str | None = None,
         semantic_text: str | None = None,
         limit: int = 10,
@@ -332,9 +343,18 @@ class Bedrock:
             columns=columns,
             statuses=statuses,
             checked=checked,
+            archived=archived,
             tags=tags,
             date_from=date_from,
             date_to=date_to,
+            created_at_from=created_at_from,
+            created_at_to=created_at_to,
+            started_at_from=started_at_from,
+            started_at_to=started_at_to,
+            completed_at_from=completed_at_from,
+            completed_at_to=completed_at_to,
+            due_date_from=due_date_from,
+            due_date_to=due_date_to,
             exact_text=exact_text,
             semantic_text=semantic_text,
             limit=limit,
@@ -347,9 +367,18 @@ class Bedrock:
         columns: tuple[str, ...] = (),
         statuses: tuple[str, ...] = (),
         checked: bool | None = None,
+        archived: bool | None = False,
         tags: tuple[str, ...] = (),
         date_from: str | None = None,
         date_to: str | None = None,
+        created_at_from: str | None = None,
+        created_at_to: str | None = None,
+        started_at_from: str | None = None,
+        started_at_to: str | None = None,
+        completed_at_from: str | None = None,
+        completed_at_to: str | None = None,
+        due_date_from: str | None = None,
+        due_date_to: str | None = None,
         exact_text: str | None = None,
         semantic_text: str | None = None,
         limit: int = 10,
@@ -363,6 +392,14 @@ class Bedrock:
                 tags_all=tags,
                 date_from=date_from,
                 date_to=date_to,
+                created_at_from=created_at_from,
+                created_at_to=created_at_to,
+                started_at_from=started_at_from,
+                started_at_to=started_at_to,
+                completed_at_from=completed_at_from,
+                completed_at_to=completed_at_to,
+                due_date_from=due_date_from,
+                due_date_to=due_date_to,
                 entry_types=(EntryType.KANBAN_CARD,),
                 literal_text=exact_text,
                 semantic_text=semantic_text,
@@ -370,6 +407,7 @@ class Bedrock:
                 kanban_columns=columns,
                 kanban_statuses=statuses,
                 kanban_checked=checked,
+                kanban_archived=archived,
                 limit=limit,
                 offset=offset,
             )

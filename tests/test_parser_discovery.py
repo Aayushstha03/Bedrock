@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -51,3 +52,14 @@ def test_discovery_is_recursive_sorted_and_excludes_configured_directories() -> 
 def test_requested_paths_cannot_escape_vault() -> None:
     with pytest.raises(ValueError):
         discover_markdown(settings(), ["../outside.md"])
+
+
+def test_excluded_filenames_apply_to_full_and_requested_discovery(tmp_path: Path) -> None:
+    for name in ("tags.md", "nested/TAGS.md", "nested/keep.md"):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    configured = replace(settings(), vault_path=tmp_path, excluded_files=("tags.md",))
+    expected = (tmp_path / "nested/keep.md",)
+    assert discover_markdown(configured) == expected
+    assert discover_markdown(configured, ["tags.md", "nested/TAGS.md", "nested/keep.md"]) == expected

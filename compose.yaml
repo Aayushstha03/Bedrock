@@ -21,6 +21,7 @@ services:
       - dashboard
 
   bedrock:
+    user: &vault-user "${BEDROCK_VAULT_USER:-10001:10001}"
     build:
       context: .
       dockerfile: Dockerfile
@@ -44,6 +45,7 @@ services:
       BEDROCK_LOG_ROOT: ${BEDROCK_LOG_ROOT}
       BEDROCK_KANBAN_ROOT: ${BEDROCK_KANBAN_ROOT}
       BEDROCK_EXCLUDED_DIRECTORIES: ${BEDROCK_EXCLUDED_DIRECTORIES}
+      BEDROCK_EXCLUDED_FILES: ${BEDROCK_EXCLUDED_FILES:-}
       BEDROCK_KNOWN_TAGS: ${BEDROCK_KNOWN_TAGS}
       BEDROCK_TAG_ALIASES: ${BEDROCK_TAG_ALIASES}
       BEDROCK_LLM_BASE_URL: ${BEDROCK_LLM_BASE_URL}
@@ -66,6 +68,11 @@ services:
         source: ${BEDROCK_VAULT_PATH}
         target: /vault
         read_only: true
+      # Scope writes to Kanban files; other vault notes stay read-only.
+      - type: bind
+        source: ${BEDROCK_VAULT_PATH}/${BEDROCK_KANBAN_ROOT}
+        target: /vault/${BEDROCK_KANBAN_ROOT}
+        read_only: false
       - model-cache:/models
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
@@ -78,6 +85,7 @@ services:
       - llm
 
   mcp:
+    user: *vault-user
     build:
       context: .
       dockerfile: Dockerfile
@@ -122,6 +130,7 @@ services:
       BEDROCK_LOG_ROOT: ${BEDROCK_LOG_ROOT}
       BEDROCK_KANBAN_ROOT: ${BEDROCK_KANBAN_ROOT}
       BEDROCK_EXCLUDED_DIRECTORIES: ${BEDROCK_EXCLUDED_DIRECTORIES}
+      BEDROCK_EXCLUDED_FILES: ${BEDROCK_EXCLUDED_FILES:-}
       BEDROCK_KNOWN_TAGS: ${BEDROCK_KNOWN_TAGS}
       BEDROCK_TAG_ALIASES: ${BEDROCK_TAG_ALIASES}
     volumes:

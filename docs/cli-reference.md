@@ -693,7 +693,7 @@ Returns one complete `KanbanBoard`. Missing or ambiguous boards exit `2`.
 bedrock kanban find [QUERY]
   [--board BOARD] [--column COLUMN]... [--status STATUS]...
   [--checked true|false] [--tag TAG]... [--date-from YYYY-MM-DD]
-  [--date-to YYYY-MM-DD] [--exact] [--limit N]
+  [--date-to YYYY-MM-DD] [--archived true|false|all] [--exact] [--limit N]
 ```
 
 Examples:
@@ -721,6 +721,23 @@ use any-match semantics; repeated tags are all required.
 from the Obsidian Kanban date annotation. Undated cards never match a date
 range. The same cards also appear in a plain `bedrock search --date-from ...`
 next to daily sections and project updates.
+
+`--archived` defaults to `false`; `true` selects archived cards and `all` includes both.
+
+Lifecycle filters are also available as `--created-at-from/to`,
+`--started-at-from/to`, `--completed-at-from/to`, and `--due-date-from/to`
+(each pair represents two flags, e.g. `--due-date-from` and `--due-date-to`).
+Timestamp ranges accept dates spanning whole UTC days or timezone-aware ISO
+instants; due-date ranges accept calendar dates only. Missing fields do not match,
+and all supplied ranges combine with AND. These match explicit
+[`bedrock-dates` card fields](operations.md#kanban-lifecycle-dates), independently
+of the legacy `--date-from` / `--date-to` annotations. The library methods
+`find_kanban_cards` and `find_kanban_cards_page` expose matching underscore-named
+arguments, e.g. `created_at_from` and `due_date_to`.
+
+```bash
+bedrock kanban find --started-at-from 2026-10-12 --due-date-to 2026-10-20
+```
 
 ## Network graph
 

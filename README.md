@@ -5,7 +5,7 @@ journals, project logs, freeform notes, and Kanban cards searchable together,
 with source locations that let you inspect the evidence behind each result.
 
 Built as the vault layer for **Zenith**, Bedrock can also run independently
-through its CLI, Python API, or read-only MCP server. Markdown remains the
+through its CLI, Python API, or MCP server. Markdown remains the
 source of truth; Qdrant holds a rebuildable derived index. Parsing, indexing,
 search, and the watcher need no chat model.
 
@@ -37,7 +37,8 @@ docker compose exec bedrock bedrock search "pipeline clustering" --mode hybrid
 ```
 
 Model prefetching requires network access. After models are cached, normal
-indexing and search can run offline. The vault is mounted read-only. Persistent
+indexing and search can run offline. The vault is mounted read-only with a writable overlay for its configured Kanban folder.
+Set `BEDROCK_VAULT_USER` to the vault owner's UID:GID (`id -u` / `id -g`). Persistent
 volumes hold Qdrant data and the model cache.
 
 The `watch` service keeps the index current after saves and catches up on
@@ -99,9 +100,10 @@ and explicit card dates remain separate. See
 ### Connect an assistant
 
 Configure an MCP-compatible client to use Streamable HTTP at
-`http://127.0.0.1:8000/mcp`. Bedrock exposes nine read-only tools for note search
-and discovery, original-source reads, backlinks, tasks, context, boards, tags,
-and availability/freshness checks.
+`http://127.0.0.1:8000/mcp`. Bedrock exposes fifteen tools for note search, discovery, original-source reads,
+backlinks, tasks, context, boards, tags, and availability/freshness checks, plus
+scoped board/task editing with revision checks and backups. See
+[Kanban editing](docs/mcp.md#kanban-editing).
 
 The [MCP guide](docs/mcp.md) covers HTTP and stdio configuration, tool arguments,
 pagination, evidence handling, and containerized clients. Citation presentation
@@ -137,7 +139,7 @@ Read-only Markdown vault
   -> local dense + sparse encoding
   -> Qdrant derived index
   -> filtered retrieval and bounded context
-  -> CLI / Python API / read-only MCP
+  -> CLI / Python API / MCP
 
 Read-only Markdown vault
   -> HTTP observer and event bus
@@ -155,7 +157,7 @@ Read-only Markdown vault
 | Explicit chronology | Daily dates, dated headings, inclusive date ranges, and Kanban annotations; no inferred dates | [Date semantics](docs/design.md#7-dates) |
 | Bounded related context | Outgoing links, backlinks, and nearby history with provenance and traversal budgets | [Context](docs/design.md#6-retrieval) |
 | Live interface data | Source-backed graph cache, content-derived ETags, event bus, and ephemeral SSE | [Graph architecture](docs/design.md#9-live-graph-and-notifications) |
-| Reusable agent tools | Nine read-only MCP tools over HTTP or stdio, independent of a chat model | [MCP contract](docs/mcp.md#tools) |
+| Reusable agent tools | Fifteen MCP tools over HTTP or stdio, with scoped Kanban editing and no chat model dependency | [MCP contract](docs/mcp.md#tools) |
 
 Bedrock deliberately keeps Qdrant as its only derived datastore and performs
 embedding in-process on CPU. The parser, metadata rules, and source references
@@ -164,7 +166,8 @@ keep retrieval grounded in the files. The
 
 ## Boundaries and limitations
 
-- Markdown is read-only; Bedrock does not edit notes or autonomously manage tasks.
+- Writes are confined to Kanban board/task tools. Other Markdown notes stay read-only.
+  Moving across board files and deleting notes/boards are not supported.
 - Search tag filters use configured inline tags and aliases. The source-backed
   graph includes broader inline/frontmatter tags; these are distinct contracts.
 - Missing or ambiguous links are reported rather than guessed. Graph traversal

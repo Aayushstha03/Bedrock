@@ -5,6 +5,7 @@ from __future__ import annotations
 from qdrant_client import models
 
 from bedrock.core.contracts import QueryPlan
+from bedrock.core.task_dates import TASK_DATE_FIELDS, task_date_bound
 from bedrock.index.qdrant import vault_condition
 
 
@@ -72,6 +73,20 @@ def build_filter(plan: QueryPlan, vault_id: str) -> models.Filter:
             )
         )
 
+    for field in TASK_DATE_FIELDS:
+        start = getattr(plan, f"{field}_from")
+        end = getattr(plan, f"{field}_to")
+        if start is not None or end is not None:
+            must.append(
+                models.FieldCondition(
+                    key=f"board.{field}",
+                    range=models.DatetimeRange(
+                        gte=task_date_bound(field, start) if start is not None else None,
+                        lte=task_date_bound(field, end, end=True) if end is not None else None,
+                    ),
+                )
+            )
+
     if plan.kanban_board:
         # A card's `note_title` is its board's title, and every Kanban query is
         # already scoped to `EntryType.KANBAN_CARD`, so this needs no field of
@@ -93,6 +108,10 @@ def build_filter(plan: QueryPlan, vault_id: str) -> models.Filter:
         must.append(
             models.FieldCondition(key="board.status", match=models.MatchAny(any=list(plan.kanban_statuses)))
         )
+    if plan.kanban_archived is not None:
+        # Older payloads lack this field and represent active cards.
+        archived = models.FieldCondition(key="board.archived", match=models.MatchValue(value=True))
+        must.append(archived if plan.kanban_archived else models.Filter(must_not=[archived]))
     if plan.kanban_checked is not None:
         must.append(
             models.FieldCondition(key="board.checked", match=models.MatchValue(value=plan.kanban_checked))

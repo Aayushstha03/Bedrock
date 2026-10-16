@@ -1,1 +1,1 @@
-"""Agent-independent, read-only Bedrock tools."""
+"""Agent-independent Bedrock evidence and scoped Kanban editing tools."""

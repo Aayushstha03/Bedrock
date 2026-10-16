@@ -1,4 +1,5 @@
 import time
+from dataclasses import replace
 from pathlib import Path
 from threading import Lock, Thread
 
@@ -136,5 +137,21 @@ def test_directory_structure_changes_request_full_convergence(tmp_path: Path) ->
         handler.on_any_event(DirMovedEvent(str(tmp_path / "before"), str(tmp_path / "after")))
         handler.flush()
         assert received == [(), ()]
+    finally:
+        handler.close()
+
+
+def test_watcher_ignores_excluded_filenames_and_tracks_renames(tmp_path: Path) -> None:
+    received: list[tuple[str, ...]] = []
+    configured = replace(settings(tmp_path), excluded_files=("tags.md",))
+    handler = MarkdownChangeHandler(configured, received.append, debounce_seconds=60)
+    try:
+        handler.on_any_event(FileCreatedEvent(str(tmp_path / "tags.md")))
+        handler.on_any_event(FileCreatedEvent(str(tmp_path / "nested/TAGS.md")))
+        handler.flush()
+        assert received == []
+        handler.on_any_event(FileMovedEvent(str(tmp_path / "note.md"), str(tmp_path / "tags.md")))
+        handler.flush()
+        assert received == [("note.md",)]
     finally:
         handler.close()

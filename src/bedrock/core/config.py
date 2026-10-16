@@ -105,6 +105,7 @@ class Settings:
     log_root: str = "logs"
     kanban_root: str = "kanban"
     excluded_directories: tuple[str, ...] = (".git", ".obsidian", ".trash")
+    excluded_files: tuple[str, ...] = ()
     known_tags: tuple[str, ...] = DEFAULT_KNOWN_TAGS
     tag_aliases: tuple[tuple[str, str], ...] = (("journaling", "journal"), ("recipes", "recipe"))
     dense_token_window: int = DENSE_TOKEN_WINDOW
@@ -128,6 +129,7 @@ class Settings:
             log_root=os.getenv("BEDROCK_LOG_ROOT", "logs").strip("/"),
             kanban_root=os.getenv("BEDROCK_KANBAN_ROOT", "kanban").strip("/"),
             excluded_directories=_csv("BEDROCK_EXCLUDED_DIRECTORIES", ".git,.obsidian,.trash"),
+            excluded_files=_csv("BEDROCK_EXCLUDED_FILES", ""),
             known_tags=_csv("BEDROCK_KNOWN_TAGS", ",".join(DEFAULT_KNOWN_TAGS)),
             tag_aliases=_aliases("BEDROCK_TAG_ALIASES", "journaling:journal,recipes:recipe"),
             dense_token_window=_positive_int("BEDROCK_DENSE_TOKEN_WINDOW", DENSE_TOKEN_WINDOW),

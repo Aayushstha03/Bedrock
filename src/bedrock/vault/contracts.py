@@ -8,9 +8,15 @@ from bedrock.core.contracts import EntryType, NoteType, RetrievalMode
 
 
 class Task(BaseModel):
+    task_id: str | None = None
+    archived: bool = False
     column: str
     status: str | None
     checked: bool
+    created_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    due_date: str | None = None
     card_time: str | None
 
 

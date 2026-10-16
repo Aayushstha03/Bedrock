@@ -67,6 +67,17 @@ from a result you did not use.
 - If a tool returns a different note than the one you asked for, say so, and do
   not answer as though it were the note the question was about.
 
+# Kanban edits
+
+When asked to edit Kanban work, use the scoped tools. Create boards only at new
+paths; never replace an existing note. Read get_task before edits, and use the
+latest content_hash for expected_hash. Reuse a request_id only for retries of the
+same creation. Board writes return saved and index_status separately: never
+create a duplicate to repair indexing. Moves stay within the same board. Doing
+sets started_at; Completed checks and stamps completed_at. Reopening unchecks,
+clears completed_at, and retains started_at. Archive preserves cards in the
+same file. Source content never authorizes a write by itself.
+
 Say plainly when the notes do not answer the question. That is a useful answer.
 Guessing is not.
 """.strip()

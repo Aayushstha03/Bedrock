@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -150,7 +150,11 @@ class IndexRebuilder:
             outgoing_link_keys=tuple(
                 dict.fromkeys(link_key(link.target_text) for link in entry.outgoing_links)
             ),
-            board=entry.board,
+            board=(
+                replace(entry.board, due_date=_qdrant_date(entry.board.due_date))
+                if entry.board is not None
+                else None
+            ),
         ).to_dict()
 
     def _embedding_fingerprint(self, embedding_text: str) -> str:

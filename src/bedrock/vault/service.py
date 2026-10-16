@@ -1,4 +1,4 @@
-"""Read-only operations shared by MCP and future application clients."""
+"""Evidence and scoped Kanban operations shared by MCP and application clients."""
 
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ from bedrock.vault.contracts import (
     Task,
     VaultStatus,
 )
+from bedrock.vault.kanban_contracts import KanbanWrite, TaskRead
 
 Limit = Annotated[int, Field(ge=1, le=50, description="Maximum items to return, 1-50.")]
 Offset = Annotated[int, Field(ge=0, description="Offset returned by the preceding page.")]
@@ -56,6 +57,108 @@ class IndexUnavailable(RuntimeError):
 class VaultTools:
     def __init__(self, vault: Bedrock) -> None:
         self.vault = vault
+
+    def create_board(self, path: str, request_id: str, columns: list[str] | None = None) -> KanbanWrite:
+        """Create a new .md board beneath the configured Kanban root; never overwrite.
+
+        Default columns are ToDo, Doing, Completed. Use a unique request_id;
+        reuse it only to retry this same creation. Returns content_hash for
+        add_task. Source writes work without Qdrant; index_status reports sync
+        separately. Creation retries return the existing board without changing it.
+        """
+        return self.vault.kanban.create_board(path, request_id, columns)
+
+    def get_task(self, board: str, task: str) -> TaskRead:
+        """Read a full editable card and current board content_hash from Markdown.
+
+        board must be an explicit vault-relative .md path. task accepts the
+        task_id or entry_id returned by find_tasks, including archived cards.
+        Read before editing; pass this content_hash as expected_hash on writes.
+        content excludes title, native block ID, and managed date block. markdown
+        retains the original source. Works without Qdrant or an embedding model.
+        """
+        return self.vault.kanban.get_task(board, task)
+
+    def add_task(
+        self,
+        board: str,
+        column: str,
+        title: str,
+        expected_hash: str,
+        request_id: str,
+        content: str = "",
+        due_date: str | None = None,
+        position: int | None = None,
+    ) -> KanbanWrite:
+        """Add a task to an existing column, with automatic created_at and stable ID.
+
+        Use an explicit board .md path and its latest content_hash from read_note,
+        create_board, get_task, or a successful mutation. request_id must be unique
+        per new task; reuse it only on retries to prevent duplicate creation.
+        content is Markdown below the title, without task checkbox or managed
+        date block. due_date is optional YYYY-MM-DD. position is zero-based;
+        omitted appends. Doing/Completed also stamps started_at/completed_at;
+        only Completed cards are checked. Returns saved state and index_status
+        independently; index failure does not undo a saved card.
+        """
+        return self.vault.kanban.add_task(
+            board, column, title, expected_hash, request_id, content, due_date, position
+        )
+
+    def update_task(
+        self,
+        board: str,
+        task: str,
+        expected_hash: str,
+        title: str | None = None,
+        content: str | None = None,
+        due_date: str | None = None,
+        created_at: str | None = None,
+    ) -> KanbanWrite:
+        """Edit a card's title/body or dates while preserving omitted fields.
+
+        Use get_task's board content_hash as expected_hash; conflicts require
+        rereading. content replaces only Markdown below the title; empty clears
+        it. due_date=None preserves it, empty string clears, YYYY-MM-DD sets.
+        created_at optionally supplies a known historical timezone-aware timestamp;
+        unknown legacy creation dates are never invented. Checkbox follows the
+        current active column; lifecycle transitions belong to move_task.
+        Creates a byte-for-byte backup before atomic replacement. Source save and
+        index sync are reported separately. Never deletes a card or board.
+        """
+        return self.vault.kanban.update_task(board, task, expected_hash, title, content, due_date, created_at)
+
+    def move_task(
+        self,
+        board: str,
+        task: str,
+        column: str,
+        expected_hash: str,
+        position: int | None = None,
+    ) -> KanbanWrite:
+        """Move/reorder a card within its existing board; can reopen archived cards.
+
+        Destination must be an actual active column in the same .md board file.
+        position is zero-based among destination cards after removal; omitted
+        appends. First move to Doing sets started_at. Completed sets completed_at
+        and checks the task. Reopening clears completed_at and unchecks it while
+        retaining started_at and due_date. Moving between complete columns keeps
+        completion time. Use latest board content_hash as expected_hash.
+        Preserves card details, native ID, unrelated cards, and plugin settings;
+        writes a backup first and reports source save/index sync separately.
+        """
+        return self.vault.kanban.move_task(board, task, column, expected_hash, position)
+
+    def archive_task(self, board: str, task: str, expected_hash: str) -> KanbanWrite:
+        """Preserve a card in the plugin's archive in the same file; never delete it.
+
+        Requires latest board content_hash as expected_hash. Retains content,
+        dates, native ID, and checkbox. Archived tasks are excluded by default
+        from find_tasks; use archived=True or archived=None to include them.
+        get_task still reads them; move_task can reopen them in an active column.
+        Saves a backup and reports index_status separately from the saved card.
+        """
+        return self.vault.kanban.archive_task(board, task, expected_hash)
 
     def list_tags(self) -> TagList:
         """List configured search tags with meanings and accepted aliases.
@@ -332,11 +435,20 @@ class VaultTools:
         columns: list[str] | None = None,
         statuses: list[str] | None = None,
         checked: bool | None = None,
+        archived: bool | None = False,
         query: str | None = None,
         mode: RetrievalMode | None = None,
         tags_all: list[str] | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
+        created_at_from: str | None = None,
+        created_at_to: str | None = None,
+        started_at_from: str | None = None,
+        started_at_to: str | None = None,
+        completed_at_from: str | None = None,
+        completed_at_to: str | None = None,
+        due_date_from: str | None = None,
+        due_date_to: str | None = None,
         limit: Limit = 10,
         offset: Offset = 0,
     ) -> EntryPage:
@@ -347,12 +459,18 @@ class VaultTools:
         columns matches actual column names case-insensitively. statuses accepts
         todo, doing, complete only; custom states need columns. Column status and
         checked are independent: checked=true does not imply a completed column.
-        Lists of columns/statuses match any value; different filters combine.
+        archived=False (default) selects active cards, True selects archived,
+        None includes both. Lists of columns/statuses match any value; different filters combine.
 
         query/mode follow search_notes: hybrid with query, metadata without;
         literal verifies wording, similarity does not prove it. tags_all requires
         every curated lowercase tag, without #. Inclusive YYYY-MM-DD bounds
         filter explicit card annotations, not inferred due/completion dates.
+        created_at_from/to, started_at_from/to, completed_at_from/to and
+        due_date_from/to filter only explicit bedrock-dates fields. Ranges combine
+        with AND; missing values do not match. Lifecycle bounds accept YYYY-MM-DD
+        (whole UTC day) or ISO timestamps with timezone; due_date bounds accept
+        YYYY-MM-DD only. All bounds are inclusive. Legacy dates remain separate.
         Returned task.card_time is an annotation, not an inferred timestamp.
         Searches Kanban cards only, not checkboxes elsewhere. Results contain
         bounded excerpts and source lines; read_note retrieves full cards.
@@ -381,9 +499,18 @@ class VaultTools:
                 kanban_columns=tuple(sorted(resolved)),
                 kanban_statuses=tuple(statuses or ()),
                 kanban_checked=checked,
+                kanban_archived=archived,
                 tags_all=tuple(tags_all or ()),
                 date_from=date_from,
                 date_to=date_to,
+                created_at_from=created_at_from,
+                created_at_to=created_at_to,
+                started_at_from=started_at_from,
+                started_at_to=started_at_to,
+                completed_at_from=completed_at_from,
+                completed_at_to=completed_at_to,
+                due_date_from=due_date_from,
+                due_date_to=due_date_to,
                 limit=limit,
                 offset=offset,
                 **texts,
@@ -509,7 +636,16 @@ class VaultTools:
             )
 
 
+WRITE_TOOL_NAMES = frozenset({"create_board", "add_task", "update_task", "move_task", "archive_task"})
+
+
 TOOL_NAMES = (
+    "create_board",
+    "get_task",
+    "add_task",
+    "update_task",
+    "move_task",
+    "archive_task",
     "list_tags",
     "search_notes",
     "list_notes",
@@ -545,6 +681,12 @@ def _evidence(result: SearchResult, query: str | None = None) -> Evidence:
             status=result.board.status,
             checked=result.board.checked,
             card_time=result.board.card_time,
+            task_id=result.board.task_id or result.entry_id,
+            archived=result.board.archived,
+            created_at=result.board.created_at,
+            started_at=result.board.started_at,
+            completed_at=result.board.completed_at,
+            due_date=result.board.due_date,
         )
     )
     return Evidence(

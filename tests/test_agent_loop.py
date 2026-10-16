@@ -89,11 +89,17 @@ EVERY_TOOL = {
     "find_backlinks",
     "find_tasks",
     "list_notes",
+    "create_board",
+    "get_task",
+    "add_task",
+    "update_task",
+    "move_task",
+    "archive_task",
 }
 
 
 def test_every_tool_is_declared_and_succeeds_in_a_real_agent_run(settings, vault_api) -> None:
-    """Walk all five tools with real arguments inside one agent run.
+    """Walk all read and scoped edit tools with real arguments in one agent run.
 
     TestModel invents argument values, which a name or identifier tool rightly
     rejects. Driving the loop with real values is what proves the tools work,
@@ -123,6 +129,56 @@ def test_every_tool_is_declared_and_succeeds_in_a_real_agent_run(settings, vault
             return _call("find_tasks", {"board": "Kitchen App", "limit": 3})
         if "list_notes" not in done:
             return _call("list_notes", {"note_type": "standard", "limit": 3})
+        if "create_board" not in done:
+            return _call("create_board", {"path": "kanban/Agent Playground.md", "request_id": "agent-board"})
+        created = _payload(_returns(messages, "create_board")[0])
+        if "add_task" not in done:
+            return _call(
+                "add_task",
+                {
+                    "board": created["path"],
+                    "column": "ToDo",
+                    "title": "Agent experiment",
+                    "expected_hash": created["content_hash"],
+                    "request_id": "agent-task",
+                    "due_date": "2026-10-20",
+                },
+            )
+        added = _payload(_returns(messages, "add_task")[0])
+        task_id = added["task"]["task_id"]
+        if "get_task" not in done:
+            return _call("get_task", {"board": created["path"], "task": task_id})
+        read = _payload(_returns(messages, "get_task")[0])
+        if "update_task" not in done:
+            return _call(
+                "update_task",
+                {
+                    "board": created["path"],
+                    "task": task_id,
+                    "expected_hash": read["content_hash"],
+                    "content": "- Real agent tool update",
+                },
+            )
+        changed = _payload(_returns(messages, "update_task")[0])
+        if "move_task" not in done:
+            return _call(
+                "move_task",
+                {
+                    "board": created["path"],
+                    "task": task_id,
+                    "column": "Completed",
+                    "expected_hash": changed["content_hash"],
+                },
+            )
+        moved = _payload(_returns(messages, "move_task")[0])
+        if "archive_task" not in done:
+            return _call(
+                "archive_task",
+                {"board": created["path"], "task": task_id, "expected_hash": moved["content_hash"]},
+            )
+        archived = _payload(_returns(messages, "archive_task")[0])
+        assert archived["task"]["archived"] and archived["task"]["checked"]
+        assert archived["task"]["completed_at"] and archived["index_status"] == "updated"
         return ModelResponse(parts=[TextPart("done")])
 
     agent = build_agent(settings, model=FunctionModel(script))

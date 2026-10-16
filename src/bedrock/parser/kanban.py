@@ -20,6 +20,8 @@ from bedrock.core.contracts import (
     WarningType,
 )
 from bedrock.core.identity import entry_id
+from bedrock.parser.kanban_dates import lifecycle_dates
+from bedrock.parser.kanban_structure import BLOCK_ID_RE, CARD_RE, board_columns
 from bedrock.parser.markdown import (
     Frontmatter,
     Heading,
@@ -29,7 +31,6 @@ from bedrock.parser.markdown import (
 )
 from bedrock.parser.tokens import estimate_tokens
 
-CARD_RE = re.compile(r"^- \[([ xX])\]\s+(.*)$")
 # Obsidian Kanban writes card dates and times behind configurable triggers.
 # The plugin defaults, from `defaultDateTrigger` and `defaultTimeTrigger` in
 # its own source, are `@` and `@@`.
@@ -39,7 +40,7 @@ TIME_RE = re.compile(r"^\d{1,2}:\d{2}$")
 SETTINGS_START_RE = re.compile(r"^%%\s*kanban:settings\s*$")
 STATUS_ALIASES = {
     "todo": {"todo", "to do", "backlog"},
-    "doing": {"doing", "in progress", "active"},
+    "doing": {"doing", "in progress", "on progress", "working", "active"},
     "complete": {"complete", "completed", "done"},
 }
 
@@ -126,7 +127,7 @@ def parse_settings(
     if start is None:
         return None, None, None
     fence_start = next(
-        (index for index in range(start + 1, len(lines)) if lines[index].strip() == "```json"), None
+        (index for index in range(start + 1, len(lines)) if lines[index].strip() in {"```json", "```"}), None
     )
     fence_end = (
         next((index for index in range(fence_start + 1, len(lines)) if lines[index].strip() == "```"), None)
@@ -148,6 +149,14 @@ def parse_settings(
             fence_start + 2,
         )
         return None, warning, start
+    if not isinstance(value, dict):
+        return (
+            None,
+            IndexWarning(
+                WarningType.INVALID_KANBAN_SETTINGS, path, "Kanban settings must be an object", start + 1
+            ),
+            start,
+        )
     return value, None, start
 
 
@@ -176,27 +185,31 @@ def parse_kanban_entries(
     date_trigger = _trigger(plugin_settings, "date-trigger", DEFAULT_DATE_TRIGGER)
     time_trigger = _trigger(plugin_settings, "time-trigger", DEFAULT_TIME_TRIGGER)
 
-    columns = [heading for heading in parsed_headings if heading.level == 2]
+    columns = board_columns(
+        tokens, lines, frontmatter.body_start, settings_start if settings_start is not None else len(lines)
+    )
+    heading_by_line = {heading.line - 1: heading for heading in parsed_headings}
+    # Metadata fences belong to the source card but never its searchable prose.
+    prose_tokens = [
+        token for token in tokens if not (token.type == "fence" and token.info.strip() == "bedrock-dates")
+    ]
     entries: list[ParsedEntry] = []
     for column_position, column in enumerate(columns):
-        status = canonical_status(column.text)
-        column_start = column.content_start
-        column_end = column.content_end
-        if settings_start is not None:
-            column_end = min(column_end, settings_start)
-        cards = [
-            (line_index, match)
-            for line_index in range(column_start, column_end)
-            if (match := CARD_RE.match(lines[line_index])) is not None
-        ]
-        for card_position, (line_index, match) in enumerate(cards):
-            next_card = cards[card_position + 1][0] if card_position + 1 < len(cards) else column_end
+        status = "complete" if column.complete else canonical_status(column.name)
+        heading = heading_by_line[column.start]
+        for card_position, span in enumerate(column.cards):
+            line_index, next_card = span.start, span.end
+            match = CARD_RE.match(lines[line_index])
             prose = prose_between(
-                tokens, line_index, next_card, path, settings.known_tags, settings.tag_aliases
+                prose_tokens, line_index, next_card, path, settings.known_tags, settings.tag_aliases
             )
+            dates, lifecycle_warnings = lifecycle_dates(tokens, lines, line_index, next_card, path)
+            warnings.extend(lifecycle_warnings)
             visible = re.sub(r"^\[[ xX]\]\s*", "", prose.text).strip()
+            if span.block_id:
+                visible = visible.replace(f" ^{span.block_id}", "", 1)
             if not visible:
-                visible = match.group(2).strip()
+                visible = BLOCK_ID_RE.sub("", match.group(2)).strip()
             visible, card_date, card_time, consumed, date_warnings = card_annotations(
                 visible, path, line_index + 1, date_trigger, time_trigger
             )
@@ -207,7 +220,11 @@ def parse_kanban_entries(
             # `@[[2026-06-06]]` is a date the plugin renders as a daily-note
             # link. It was consumed as a date, so it is not also a real link.
             links = tuple(link for link in prose.links if link.target_text not in consumed)
-            structural_key = f"{column.text}/{card_position}:{visible.casefold()}"
+            structural_key = (
+                f"block:{span.block_id}"
+                if span.block_id
+                else f"{column.name}/{card_position}:{visible.casefold()}"
+            )
             card_id = str(entry_id(note_uuid, EntryType.KANBAN_CARD, structural_key))
             body_range = meaningful_line_range(lines, line_index, next_card)
             entries.append(
@@ -220,12 +237,12 @@ def parse_kanban_entries(
                     entry_type=EntryType.KANBAN_CARD,
                     text=visible,
                     embedding_text=(
-                        f"Board: {title}\nColumn: {column.text}\n"
+                        f"Board: {title}\nColumn: {column.name}\n"
                         + (f"Date: {card_date}\n" if card_date else "")
                         + f"Status: {status or 'custom'}\nTask: {visible}"
                     ),
-                    heading=column.text,
-                    heading_path=column.path,
+                    heading=column.name,
+                    heading_path=heading.path,
                     source=SourceRange(line_index + 1, body_range.end_line if body_range else line_index + 1),
                     entry_date=card_date,
                     tags=prose.tags,
@@ -233,12 +250,15 @@ def parse_kanban_entries(
                     web_links=prose.web_links,
                     content_hash=hashlib.sha256(visible.encode("utf-8")).hexdigest(),
                     board=KanbanData(
-                        column=column.text,
+                        column=column.name,
                         status=status,
                         column_position=column_position,
                         card_position=card_position,
                         checked=match.group(1).casefold() == "x",
                         card_time=card_time,
+                        task_id=span.block_id,
+                        archived=column.archived,
+                        **dates,
                     ),
                 )
             )
@@ -257,5 +277,8 @@ def parse_kanban_entries(
                         line_index + 1,
                     )
                 )
-    metadata = {"kanban_settings": plugin_settings, "columns": [column.text for column in columns]}
+    metadata = {
+        "kanban_settings": plugin_settings,
+        "columns": [column.name for column in columns if not column.archived],
+    }
     return tuple(entries), tuple(warnings), metadata

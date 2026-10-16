@@ -34,6 +34,12 @@ PAYLOAD_INDEXES: tuple[tuple[str, models.PayloadSchemaType], ...] = (
     ("text", models.PayloadSchemaType.TEXT),
     ("board.column", models.PayloadSchemaType.KEYWORD),
     ("board.status", models.PayloadSchemaType.KEYWORD),
+    ("board.created_at", models.PayloadSchemaType.DATETIME),
+    ("board.started_at", models.PayloadSchemaType.DATETIME),
+    ("board.completed_at", models.PayloadSchemaType.DATETIME),
+    ("board.due_date", models.PayloadSchemaType.DATETIME),
+    ("board.archived", models.PayloadSchemaType.BOOL),
+    ("board.task_id", models.PayloadSchemaType.KEYWORD),
     ("board.checked", models.PayloadSchemaType.BOOL),
     ("modified_at", models.PayloadSchemaType.DATETIME),
 )

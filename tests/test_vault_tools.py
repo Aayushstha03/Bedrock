@@ -9,7 +9,7 @@ from test_agent_tools import ctx  # noqa: F401 - shared hermetic indexed-vault f
 from bedrock.index import diagnostics
 from bedrock.vault import service as service_module
 from bedrock.vault.mcp import build_server
-from bedrock.vault.service import TOOL_NAMES, IndexUnavailable, VaultTools
+from bedrock.vault.service import TOOL_NAMES, WRITE_TOOL_NAMES, IndexUnavailable, VaultTools
 
 
 @pytest.fixture
@@ -158,7 +158,10 @@ def test_all_tools_through_real_mcp_session_and_error_results(tools):
         async with create_connected_server_and_client_session(build_server(tools)) as client:
             listed = await client.list_tools()
             assert {tool.name for tool in listed.tools} == set(TOOL_NAMES)
-            assert all(tool.annotations.readOnlyHint and tool.outputSchema for tool in listed.tools)
+            assert all(tool.outputSchema for tool in listed.tools)
+            assert all(
+                tool.annotations.readOnlyHint == (tool.name not in WRITE_TOOL_NAMES) for tool in listed.tools
+            )
             assert "ctx" not in str([tool.inputSchema for tool in listed.tools])
             page = await client.call_tool("search_notes", {"query": "pipeline", "mode": "literal"})
             assert not page.isError

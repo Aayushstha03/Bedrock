@@ -113,7 +113,7 @@ def test_runtime_has_no_sqlite_or_cloud_inference_dependency() -> None:
     assert "cloud_inference" not in runtime
 
 
-def test_mcp_service_reuses_read_only_vault_and_publishes_loopback() -> None:
+def test_mcp_service_reuses_scoped_writable_kanban_and_publishes_loopback() -> None:
     import yaml
 
     services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
@@ -124,3 +124,16 @@ def test_mcp_service_reuses_read_only_vault_and_publishes_loopback() -> None:
     assert "streamable-http" in mcp["command"]
     assert "-T" not in mcp["command"]
     assert "bedrock-internal" in mcp["networks"] and "llm" not in mcp["networks"]
+
+
+def test_writes_are_confined_to_the_kanban_mount_and_use_the_vault_owner() -> None:
+    import yaml
+
+    services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
+    for name in ("bedrock", "mcp"):
+        volumes = [item for item in services[name]["volumes"] if isinstance(item, dict)]
+        writable = [item for item in volumes if not item["read_only"]]
+        assert [item["target"] for item in writable] == ["/vault/${BEDROCK_KANBAN_ROOT}"]
+        assert next(item for item in volumes if item["target"] == "/vault")["read_only"]
+        assert "BEDROCK_VAULT_USER" in services[name]["user"]
+    assert all(item["read_only"] for item in services["watch"]["volumes"] if isinstance(item, dict))

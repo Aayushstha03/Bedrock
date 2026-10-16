@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
-from bedrock.vault.service import TOOL_NAMES, VaultTools
+from bedrock.vault.service import TOOL_NAMES, WRITE_TOOL_NAMES, VaultTools
 
 
 def build_server(service: VaultTools, *, host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
@@ -26,12 +26,18 @@ def build_server(service: VaultTools, *, host: str = "127.0.0.1", port: int = 80
             allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
         ),
         instructions=(
-            "Bedrock provides read-only evidence from a Markdown vault, including project logs, "
+            "Bedrock provides evidence and scoped Kanban editing in a Markdown vault, including project logs, "
             "daily notes, technical code snippets, and Kanban cards.\n"
             "Choose tools by intent: list_tags discovers configured search tags and meanings; list_notes locates names/paths; search_notes finds content; "
             "read_note reads original source; find_backlinks finds references; expand_context "
             "follows related evidence; list_boards discovers columns; find_tasks filters cards; "
-            "vault_status diagnoses availability/freshness.\n"
+            "vault_status diagnoses availability/freshness. create_board creates a new board; "
+            "get_task reads a full card and board revision; add_task, update_task, move_task, "
+            "archive_task edit only explicit board paths. Never overwrite a board to create one. "
+            "Use fresh content_hash as expected_hash for writes; on conflict reread. Reuse request_id "
+            "only for creation retries. Saved writes can have index_status=failed; do not duplicate "
+            "a saved task to repair indexing. Move only between columns in the same file. "
+            "Only Completed tasks are checked; moves manage lifecycle timestamps.\n"
             "Search results are candidate passages, not proof that the question's premise is true. "
             "Verify decisions, reasons, and events in the evidence. Read original source when "
             "excerpts are truncated or surrounding context matters. Try alternate queries/modes "
@@ -73,7 +79,11 @@ def build_server(service: VaultTools, *, host: str = "127.0.0.1", port: int = 80
             invoke,
             name=name,
             structured_output=True,
-            annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+            annotations=ToolAnnotations(
+                readOnlyHint=name not in WRITE_TOOL_NAMES,
+                destructiveHint=name in {"update_task", "move_task", "archive_task"},
+                openWorldHint=False,
+            ),
         )
 
     for name in TOOL_NAMES:

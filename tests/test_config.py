@@ -13,6 +13,7 @@ def test_settings_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BEDROCK_DENSE_MODEL", "dense/test")
     monkeypatch.setenv("BEDROCK_SPARSE_MODEL", "sparse/test")
     monkeypatch.setenv("BEDROCK_PORT", "9090")
+    monkeypatch.setenv("BEDROCK_EXCLUDED_FILES", "tags.md, index.md")
 
     settings = Settings.from_env()
 
@@ -21,6 +22,7 @@ def test_settings_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.model_cache_path == Path("/tmp/models")
     assert settings.collection_name == "test_entries"
     assert settings.port == 9090
+    assert settings.excluded_files == ("tags.md", "index.md")
     assert settings.dense_model == "dense/test"
     assert settings.sparse_model == "sparse/test"
     assert settings.validate() == ()

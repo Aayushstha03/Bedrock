@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Any
 
+from bedrock.core.task_dates import validate_task_date_ranges
+
 
 class NoteType(StrEnum):
     LOG = "log"
@@ -32,6 +34,7 @@ class WarningType(StrEnum):
     UNKNOWN_TAG = "unknown_tag"
     AMBIGUOUS_LINK = "ambiguous_link"
     MISSING_LINK = "missing_link"
+    INVALID_KANBAN_DATES = "invalid_kanban_dates"
     INVALID_KANBAN_SETTINGS = "invalid_kanban_settings"
     MISSING_KANBAN_MARKER = "missing_kanban_marker"
     TRUNCATED_EMBEDDING_INPUT = "truncated_embedding_input"
@@ -92,7 +95,13 @@ class KanbanData:
     column_position: int
     card_position: int
     checked: bool
+    task_id: str | None = None
+    archived: bool = False
     card_time: str | None = None
+    created_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    due_date: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,9 +199,19 @@ class QueryPlan:
     kanban_status: str | None = None
     kanban_columns: tuple[str, ...] = ()
     kanban_statuses: tuple[str, ...] = ()
+    kanban_archived: bool | None = None
     kanban_checked: bool | None = None
+    created_at_from: str | None = None
+    created_at_to: str | None = None
+    started_at_from: str | None = None
+    started_at_to: str | None = None
+    completed_at_from: str | None = None
+    completed_at_to: str | None = None
+    due_date_from: str | None = None
+    due_date_to: str | None = None
 
     def __post_init__(self) -> None:
+        validate_task_date_ranges(self)
         if not 0 <= self.link_depth <= 2:
             raise ValueError("link_depth must be between 0 and 2")
         if not 1 <= self.max_linked_notes <= 5:

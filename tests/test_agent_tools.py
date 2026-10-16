@@ -88,7 +88,7 @@ def test_every_tool_takes_an_annotated_run_context() -> None:
         assert typing.get_args(annotation) == (Sources,)
 
 
-def test_the_write_and_unbounded_operations_are_not_offered() -> None:
+def test_only_scoped_writes_and_bounded_reads_are_offered() -> None:
     offered = {function.__name__ for function in tools.TOOLS}
     assert offered == {
         "search_notes",
@@ -97,6 +97,12 @@ def test_the_write_and_unbounded_operations_are_not_offered() -> None:
         "find_backlinks",
         "find_tasks",
         "list_notes",
+        "create_board",
+        "get_task",
+        "add_task",
+        "update_task",
+        "move_task",
+        "archive_task",
     }
     assert "reindex" not in offered
     assert "export_graph" not in offered
@@ -204,7 +210,9 @@ def test_queryless_search_orders_dated_entries_before_undated_entries(ctx: RunCo
     dates = [item["date"] for item in page["items"]]
     assert any(date is not None for date in dates)
     assert any(date is None for date in dates)
-    assert dates == sorted((date for date in dates if date is not None), reverse=True) + [None] * dates.count(None)
+    assert dates == sorted((date for date in dates if date is not None), reverse=True) + [None] * dates.count(
+        None
+    )
 
 
 def test_list_notes_includes_a_note_with_no_indexed_entries(ctx: RunContext[Sources]) -> None:
@@ -304,9 +312,9 @@ def test_search_narrows_by_tag_and_by_date(ctx: RunContext[Sources]) -> None:
     assert tagged
     assert all("journal" in result["tags"] for result in tagged)
 
-    dated = tools.search_notes(
-        ctx, "pipeline", date_from="2026-08-19", date_to="2026-08-19", limit=10
-    )["items"]
+    dated = tools.search_notes(ctx, "pipeline", date_from="2026-08-19", date_to="2026-08-19", limit=10)[
+        "items"
+    ]
     assert dated
     assert all(result["date"] == "2026-08-19" for result in dated)
 

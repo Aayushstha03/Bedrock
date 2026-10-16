@@ -100,9 +100,7 @@ def expand_context(ctx: RunContext[Sources], source: str) -> dict[str, Any]:
         return projections.context(ctx.deps, ctx.deps.vault.expand_context(entry_id))
 
 
-def find_backlinks(
-    ctx: RunContext[Sources], name: str, limit: int = 10, offset: int = 0
-) -> dict[str, Any]:
+def find_backlinks(ctx: RunContext[Sources], name: str, limit: int = 10, offset: int = 0) -> dict[str, Any]:
     """Find the entries in other notes that link to this note.
 
     Use this to learn where a note is referred to, and in what terms.
@@ -128,10 +126,19 @@ def find_tasks(
     columns: list[str] | None = None,
     statuses: list[str] | None = None,
     checked: bool | None = None,
+    archived: bool | None = False,
     query: str | None = None,
     tags: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    created_at_from: str | None = None,
+    created_at_to: str | None = None,
+    started_at_from: str | None = None,
+    started_at_to: str | None = None,
+    completed_at_from: str | None = None,
+    completed_at_to: str | None = None,
+    due_date_from: str | None = None,
+    due_date_to: str | None = None,
     limit: int = 10,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -142,13 +149,22 @@ def find_tasks(
         columns: Restrict to these columns, for example ToDo or Doing. An
             unknown column name is rejected, and the reply names the real ones.
         statuses: Restrict to board statuses, such as todo, doing, or complete.
-        checked: True for completed cards, False for open cards, omit for both.
+        checked: True for checked cards, False for unchecked, omit for both.
+        archived: False for active tasks, True for archived, None for both.
         query: Words to search for by meaning. This finds related cards; it
             does not prove any card contains these words.
         tags: Return only cards carrying all of these tags.
         date_from: Earliest explicit card date to include, as YYYY-MM-DD.
         date_to: Latest explicit card date to include, as YYYY-MM-DD. Dates do
             not imply due, scheduled, or completion meaning.
+        created_at_from: Inclusive earliest created_at; YYYY-MM-DD (UTC day) or timestamp with timezone.
+        created_at_to: Inclusive latest created_at; YYYY-MM-DD (UTC day) or timestamp with timezone.
+        started_at_from: Inclusive earliest started_at; YYYY-MM-DD (UTC day) or timestamp with timezone.
+        started_at_to: Inclusive latest started_at; YYYY-MM-DD (UTC day) or timestamp with timezone.
+        completed_at_from: Inclusive earliest completed_at; YYYY-MM-DD (UTC day) or timestamp with timezone.
+        completed_at_to: Inclusive latest completed_at; YYYY-MM-DD (UTC day) or timestamp with timezone.
+        due_date_from: Inclusive earliest due_date; YYYY-MM-DD.
+        due_date_to: Inclusive latest due_date; YYYY-MM-DD.
         limit: How many cards to return, at most 50.
         offset: How many matching cards to skip before this page.
     """
@@ -158,10 +174,19 @@ def find_tasks(
             columns=_columns(ctx, board, columns),
             statuses=tuple(statuses or ()),
             checked=checked,
+            archived=archived,
             semantic_text=query,
             tags=tuple(tags or ()),
             date_from=date_from,
             date_to=date_to,
+            created_at_from=created_at_from,
+            created_at_to=created_at_to,
+            started_at_from=started_at_from,
+            started_at_to=started_at_to,
+            completed_at_from=completed_at_from,
+            completed_at_to=completed_at_to,
+            due_date_from=due_date_from,
+            due_date_to=due_date_to,
             limit=max(1, min(limit, 50)),
             offset=max(0, offset),
         )
@@ -211,7 +236,136 @@ def _columns(ctx: RunContext[Sources], board: str | None, requested: list[str] |
     return tuple(known[name.casefold()] for name in requested)
 
 
-TOOLS = [search_notes, read_note, expand_context, find_backlinks, find_tasks, list_notes]
+def create_board(
+    ctx: RunContext[Sources], path: str, request_id: str, columns: list[str] | None = None
+) -> dict[str, Any]:
+    """Create a new Kanban board without overwriting any existing file.
+
+    Args:
+        path: New .md path beneath the configured Kanban root.
+        request_id: Unique creation key; reuse only to retry this same request.
+        columns: Column names; defaults to ToDo, Doing, Completed.
+    """
+    with _repair():
+        return ctx.deps.vault.kanban.create_board(path, request_id, columns).model_dump()
+
+
+def get_task(ctx: RunContext[Sources], board: str, task: str) -> dict[str, Any]:
+    """Read a complete card and board revision before editing.
+
+    Args:
+        board: Explicit vault-relative .md board path.
+        task: Returned task_id, entry_id, or source label such as s1.
+    """
+    with _repair():
+        selected = ctx.deps.entry_id(task) if task.casefold().startswith("s") and task[1:].isdigit() else task
+        return ctx.deps.vault.kanban.get_task(board, selected).model_dump()
+
+
+def add_task(
+    ctx: RunContext[Sources],
+    board: str,
+    column: str,
+    title: str,
+    expected_hash: str,
+    request_id: str,
+    content: str = "",
+    due_date: str | None = None,
+    position: int | None = None,
+) -> dict[str, Any]:
+    """Add a card with a stable ID, lifecycle dates, and column-driven checkbox.
+
+    Args:
+        board: Explicit vault-relative .md board path.
+        column: Existing destination column name.
+        title: Single-line task title without checkbox or ID.
+        expected_hash: Latest board content_hash from read/create/edit tools.
+        request_id: Unique per new task; reuse on retry to prevent duplicates.
+        content: Markdown below the title; omit managed date blocks.
+        due_date: Optional YYYY-MM-DD due date.
+        position: Zero-based position in column; omit to append.
+    """
+    with _repair():
+        return ctx.deps.vault.kanban.add_task(
+            board, column, title, expected_hash, request_id, content, due_date, position
+        ).model_dump()
+
+
+def update_task(
+    ctx: RunContext[Sources],
+    board: str,
+    task: str,
+    expected_hash: str,
+    title: str | None = None,
+    content: str | None = None,
+    due_date: str | None = None,
+    created_at: str | None = None,
+) -> dict[str, Any]:
+    """Edit a card while preserving omitted fields; never delete the card.
+
+    Args:
+        board: Explicit vault-relative .md board path.
+        task: task_id or entry_id from get_task or find_tasks.
+        expected_hash: Latest board content_hash; reread on conflict.
+        title: Replacement single-line title; omit to preserve.
+        content: Replacement Markdown below title; empty clears, omit preserves.
+        due_date: YYYY-MM-DD sets, empty clears, omit preserves.
+        created_at: Optional known historical creation timestamp with timezone.
+    """
+    with _repair():
+        return ctx.deps.vault.kanban.update_task(
+            board, task, expected_hash, title, content, due_date, created_at
+        ).model_dump()
+
+
+def move_task(
+    ctx: RunContext[Sources],
+    board: str,
+    task: str,
+    column: str,
+    expected_hash: str,
+    position: int | None = None,
+) -> dict[str, Any]:
+    """Move within one board or reopen an archived task; manages dates and checkbox.
+
+    Args:
+        board: Explicit existing .md board path; cross-file moves are unsupported.
+        task: task_id or entry_id from get_task or find_tasks.
+        column: Destination active column; Doing sets started_at, Completed checks
+            and stamps completed_at; reopening clears completed_at and unchecks.
+        expected_hash: Latest board content_hash; reread on conflict.
+        position: Zero-based destination position after removal; omit to append.
+    """
+    with _repair():
+        return ctx.deps.vault.kanban.move_task(board, task, column, expected_hash, position).model_dump()
+
+
+def archive_task(ctx: RunContext[Sources], board: str, task: str, expected_hash: str) -> dict[str, Any]:
+    """Archive without deletion, preserving content, dates, ID, and checkbox.
+
+    Args:
+        board: Explicit vault-relative .md board path.
+        task: task_id or entry_id to archive in the same file.
+        expected_hash: Latest board content_hash; reread on conflict.
+    """
+    with _repair():
+        return ctx.deps.vault.kanban.archive_task(board, task, expected_hash).model_dump()
+
+
+TOOLS = [
+    search_notes,
+    read_note,
+    expand_context,
+    find_backlinks,
+    find_tasks,
+    list_notes,
+    create_board,
+    get_task,
+    add_task,
+    update_task,
+    move_task,
+    archive_task,
+]
 
 
 @contextmanager
@@ -224,5 +378,5 @@ def _repair() -> Iterator[None]:
     """
     try:
         yield
-    except (LookupError, ValueError) as error:
+    except (LookupError, ValueError, OSError) as error:
         raise ModelRetry(str(error)) from error

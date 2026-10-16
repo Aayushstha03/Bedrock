@@ -63,10 +63,16 @@ def entry(sources: Sources, result: SearchResult, *, match: str | None = None) -
         projected["exact_match_verified"] = result.verified
     if result.board is not None:
         projected["task"] = {
+            "task_id": result.board.task_id or result.entry_id,
+            "archived": result.board.archived,
             "board": result.note_title,
             "column": result.board.column,
             "status": result.board.status,
             "checked": result.board.checked,
+            "created_at": result.board.created_at,
+            "started_at": result.board.started_at,
+            "completed_at": result.board.completed_at,
+            "due_date": result.board.due_date,
         }
     return projected
 

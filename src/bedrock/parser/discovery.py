@@ -36,6 +36,7 @@ def classify_path(relative_path: str, settings: Settings) -> NoteType:
 def discover_markdown(settings: Settings, requested: list[str] | None = None) -> tuple[Path, ...]:
     vault = settings.vault_path.resolve()
     excluded = {name.casefold() for name in settings.excluded_directories}
+    excluded_files = {name.casefold() for name in settings.excluded_files}
     if requested:
         candidates = [vault / normalize_vault_path(path) for path in requested]
     else:
@@ -51,6 +52,8 @@ def discover_markdown(settings: Settings, requested: list[str] | None = None) ->
         if resolved.suffix.casefold() != ".md" or not resolved.is_file():
             continue
         if any(part.casefold() in excluded for part in relative.parts[:-1]):
+            continue
+        if relative.name.casefold() in excluded_files:
             continue
         discovered.append(resolved)
     return tuple(sorted(set(discovered), key=lambda path: path.relative_to(vault).as_posix().casefold()))

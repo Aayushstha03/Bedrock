@@ -16,6 +16,7 @@ from qdrant_client import QdrantClient
 
 from bedrock.core.config import Settings
 from bedrock.core.contracts import QUERY_TEXT_FIELDS, EntryType, RetrievalMode, WarningType
+from bedrock.core.task_dates import TASK_DATE_FIELDS
 from bedrock.index.diagnostics import inspect_collection
 from bedrock.index.incremental import IncrementalIndexer
 from bedrock.index.schema import initialize_index
@@ -224,9 +225,13 @@ def build_parser() -> argparse.ArgumentParser:
     kanban_find.add_argument("--column", action="append", default=[])
     kanban_find.add_argument("--status", action="append", default=[])
     kanban_find.add_argument("--checked", choices=("true", "false"))
+    kanban_find.add_argument("--archived", choices=("true", "false", "all"), default="false")
     kanban_find.add_argument("--tag", action="append", default=[])
     kanban_find.add_argument("--date-from")
     kanban_find.add_argument("--date-to")
+    for field in TASK_DATE_FIELDS:
+        for bound in ("from", "to"):
+            kanban_find.add_argument(f"--{field.replace('_', '-')}-{bound}")
     kanban_find.add_argument("--exact", action="store_true")
     kanban_find.add_argument("--limit", type=int, default=10)
 
@@ -411,9 +416,15 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
                 columns=tuple(args.column),
                 statuses=tuple(args.status),
                 checked=_optional_bool(args.checked),
+                archived=None if args.archived == "all" else args.archived == "true",
                 tags=tuple(args.tag),
                 date_from=args.date_from,
                 date_to=args.date_to,
+                **{
+                    f"{field}_{bound}": getattr(args, f"{field}_{bound}")
+                    for field in TASK_DATE_FIELDS
+                    for bound in ("from", "to")
+                },
                 exact_text=args.query if args.exact else None,
                 semantic_text=args.query if args.query and not args.exact else None,
                 limit=args.limit,

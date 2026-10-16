@@ -157,6 +157,8 @@ class MarkdownChangeHandler(FileSystemEventHandler):
         excluded = {name.casefold() for name in self.settings.excluded_directories}
         if any(part.casefold() in excluded for part in relative.parts[:-1]):
             return None
+        if relative.name.casefold() in {name.casefold() for name in self.settings.excluded_files}:
+            return None
         return relative.as_posix()
 
     def _included_directory(self, raw_path: str) -> bool:

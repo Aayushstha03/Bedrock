@@ -236,6 +236,8 @@ def _result(
     verified: bool | None = None,
 ) -> SearchResult:
     board = payload.get("board")
+    if board is not None:
+        board = dict(board, due_date=_short_date(board.get("due_date")))
     return SearchResult(
         entry_id=payload["entry_id"],
         note_id=payload["note_id"],

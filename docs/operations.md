@@ -10,7 +10,18 @@ contracts live in the [CLI and library reference](cli-reference.md).
 [.env.example](../.env.example) documents the settings used by Docker Compose.
 Set `BEDROCK_VAULT_PATH` to your vault before starting services. Keep embedding
 models in the persistent model-cache volume; prefetch them before normal use.
-The vault is mounted read-only, while Qdrant and model-cache volumes are writable.
+The vault is mounted read-only with a writable overlay only for the configured
+Kanban folder in `bedrock` and `mcp`. The watcher remains read-only. Qdrant and
+model-cache volumes are writable. Set `BEDROCK_VAULT_USER` to the vault owner's
+UID:GID (check `id -u` and `id -g`) so the editing processes can write there.
+Run model prefetch before serving; the prefetch service owns the model-cache
+volume and the editing processes need read access to cached models.
+
+`BEDROCK_EXCLUDED_DIRECTORIES` skips folder names anywhere in the vault.
+`BEDROCK_EXCLUDED_FILES` skips comma-separated filenames anywhere in the vault
+(e.g. `tags.md`). Both match case-insensitively. After changing exclusions,
+recreate the services with `docker compose up -d`; the watcher startup pass
+removes newly excluded notes from the index.
 
 The local MCP endpoint has no authentication. Its default published address is
 loopback; supported hosts and client setup are documented in the
@@ -35,14 +46,16 @@ loopback; supported hosts and client setup are documented in the
   end as `entry_date_end`. Dates mentioned in prose or properties
   and filesystem timestamps do not establish chronology.
 - **Kanban state:** checkbox state and column status are separate. `todo`,
-  `to do`, and `backlog` map to `todo`; `doing`, `in progress`, and `active` map
+  `to do`, and `backlog` map to `todo`; `doing`, `in progress`, `on progress`,
+  `working`, and `active` map
   to `doing`; `complete`, `completed`, and `done` map to `complete`, ignoring
   case. Filter custom states by their actual column names from `list_boards`.
 - **Kanban dates:** card dates use `@{YYYY-MM-DD}` or `@[[YYYY-MM-DD]]`, and
   times use `@@{HH:MM}` or `@@[[HH:MM]]`, unless board settings override the
-  triggers. A card exposes one date and one time; the date is not automatically
-  interpreted as a due date. Multiple distinct dates produce a warning and
-  retain the first date.
+  triggers. These legacy annotations expose one generic date and one time;
+  the date is not automatically interpreted as a due date. Multiple distinct
+  dates produce a warning and retain the first date. Separate structured
+  lifecycle fields are described under [Kanban lifecycle dates](#kanban-lifecycle-dates).
 - **Links:** use `[[Note]]` or `[[Note#Heading]]` (including a vault-relative
   note path such as `[[projects/Note.md#Heading]]`). Heading names must match
   the stored heading exactly. Explicit heading links expand every indexed
@@ -150,3 +163,81 @@ watcher behavior, graph snapshots and events, CLI contracts, and vault tools.
 The encoder and Qdrant tests exercise those integration boundaries as well.
 These checks verify behavior; they do not establish search quality for every
 vault or provide production-scale performance benchmarks.
+
+## Kanban lifecycle dates
+
+Each card can carry one explicitly named, indented fence at the end of its
+contents. Keep it inside the card, before the next card or column:
+
+````markdown
+- [ ] Implement login
+    - Include password reset
+
+    ```bedrock-dates
+    created_at: 2026-10-16T10:30:00+05:45
+    started_at: 2026-10-16T11:00:00+05:45
+    due_date: 2026-10-20
+    ```
+````
+
+Recognized keys are exactly `created_at`, `started_at`, `completed_at`, and
+`due_date`. Lifecycle timestamps require seconds and an explicit timezone;
+Bedrock normalizes them to UTC. Due dates are calendar dates (`YYYY-MM-DD`).
+Missing or empty values remain unknown. Existing cards receive no invented
+creation or lifecycle dates. Older annotations such as `@{2026-10-16}` retain
+their generic date meaning and never become due dates or lifecycle timestamps.
+
+Unknown keys, malformed values, duplicate keys, and malformed or duplicate
+blocks produce `invalid_kanban_dates` warnings. An ambiguous key is ignored;
+multiple blocks invalidate the card's lifecycle fields. Other valid keys in a
+single block remain usable. Date-block contents do not enter searchable prose,
+tags, links, or embeddings. Original Markdown remains available through reads.
+
+Both full rebuilds and incremental updates store the dates in Qdrant under
+`board.created_at`, `board.started_at`, `board.completed_at`, and `board.due_date`.
+The collection has datetime payload indexes for all four. Due dates are stored
+at UTC midnight and returned as calendar dates. Date-only edits update metadata
+without changing the card's current entry ID or embedding input.
+
+When upgrading an existing collection, run a full rebuild to install the new
+payload indexes and refresh existing payloads:
+
+```bash
+docker compose exec bedrock bedrock index rebuild
+```
+
+Restart the long-running Bedrock, MCP, and watcher services to load the new code.
+The card editing tools automatically stamp new creation dates and transition
+milestones. Moving into Doing stamps the first `started_at`. Completed stamps
+`completed_at` and checks the card; reopening removes `completed_at`, unchecks,
+and preserves the first `started_at`. Due dates remain explicit and optional.
+Existing cards retain unknown creation dates unless supplied explicitly.
+
+## Enabling Kanban edits
+
+After updating the mount/user configuration, recreate the processes (a restart
+alone does not apply mount or user changes):
+
+```bash
+docker compose up -d bedrock mcp watch
+docker compose exec bedrock bedrock index rebuild
+```
+
+No note/board deletion tool is exposed. Before each update, move, archive, or
+addition to an existing board, Bedrock saves the previous bytes beneath that
+board's directory in `.bedrock-backups/<filename>.<revision>.bak`. These are not
+Markdown notes and are not indexed. Backups are retained; inspect them before
+manually restoring one. New-board creation uses exclusive publication and
+refuses to overwrite an existing file. Board paths must be explicit `.md` paths
+beneath the configured root; excluded paths, symlinks, and hard-linked files are
+rejected.
+
+Task writes use a per-board process lock, require the current board hash, and
+check the original bytes again immediately before atomic replacement. Obsidian
+does not participate in this lock: avoid simultaneous saves in Obsidian during
+a tool write. The final compare/replace has a small unavoidable race with an
+uncooperative external editor; backups retain the pre-edit revision.
+
+See [the tool contract](mcp.md#kanban-editing) for retries, revision handling,
+archive queries, and saved-source versus index-sync results. The editor supports
+cards up to 64,000 characters; use paginated `read_note` for larger existing cards.
